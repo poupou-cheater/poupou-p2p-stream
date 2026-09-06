@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
+    </Filter>
+    <Filter Include="External">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="External\ImGui">
+      <UniqueIdentifier>{e83a9a11-0428-4e89-a723-5e74c84cf58a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="External\Icons">
+      <UniqueIdentifier>{a5c81b29-9e87-418b-9d41-3bb7a61d8719}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="External\Images">
+      <UniqueIdentifier>{c9047d7e-72c0-4357-9be6-71d34c676ee1}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Project Source Files -->
+    <ClCompile Include="src\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\dx11.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\gui.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\icon_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <!-- ImGui Source Files -->
+    <ClCompile Include="ext\imgui_dx11\imgui.cpp">
+      <Filter>External\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui_dx11\imgui_demo.cpp">
+      <Filter>External\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui_dx11\imgui_draw.cpp">
+      <Filter>External\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui_dx11\imgui_tables.cpp">
+      <Filter>External\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui_dx11\imgui_widgets.cpp">
+      <Filter>External\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui_dx11\imgui_impl_dx11.cpp">
+      <Filter>External\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="ext\imgui_dx11\imgui_impl_win32.cpp">
+      <Filter>External\ImGui</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Project Headers -->
+    <ClInclude Include="src\dx11.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\gui.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\icon_manager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\nanosvg.h">
+      <Filter>External</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\nanosvgrast.h">
+      <Filter>External</Filter>
+    </ClInclude>
+    <!-- ImGui Headers -->
+    <ClInclude Include="ext\imgui_dx11\imconfig.h">
+      <Filter>External\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui_dx11\imgui.h">
+      <Filter>External\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui_dx11\imgui_impl_dx11.h">
+      <Filter>External\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui_dx11\imgui_impl_win32.h">
+      <Filter>External\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui_dx11\imgui_internal.h">
+      <Filter>External\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui_dx11\imgui_stdlib.h">
+      <Filter>External\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui_dx11\imstb_rectpack.h">
+      <Filter>External\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui_dx11\imstb_textedit.h">
+      <Filter>External\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ext\imgui_dx11\imstb_truetype.h">
+      <Filter>External\ImGui</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Icons -->
+    <None Include="ext\icon\BoxiconsBrushFilled.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\IcBaselineHeadset.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\IcBaselineHeadsetOff.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\MaterialSymbolsAddPhotoAlternate.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\MaterialSymbolsCinematicBlurOutline.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\MaterialSymbolsFullscreen.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\MaterialSymbolsFullscreenExit.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\MaterialSymbolsInkEraser.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\MaterialSymbolsLightStarOutlineRounded_empty.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\MaterialSymbolsLightStarRate_full.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\MaterialSymbolsMagnifyFullscreenOutlineSharp.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\MaterialSymbolsNoSound.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\MaterialSymbolsPhoneCancelSharp.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\MaterialSymbolsVolumeDown.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\MdiMicrophone.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\MdiMicrophoneOff.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+    <None Include="ext\icon\TablerPointer2.svg">
+      <Filter>External\Icons</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Image -->
+    <Image Include="ext\img\architectural sketche.png">
+      <Filter>External\Images</Filter>
+    </Image>
+  </ItemGroup>
+</Project>
