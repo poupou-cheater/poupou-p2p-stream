@@ -357,19 +357,24 @@ void InitGui(HWND hWnd, Dx11Context& dx) {
     // Support command-line switches for testing & verification
     const wchar_t* cmd = GetCommandLineW();
     if (cmd) {
-        if (wcsstr(cmd, L"--tab=conn") || wcsstr(cmd, L"--conn")) {
+        if (wcsstr(cmd, L"--tab=conn")) {
             g_state.currentTab = AppTab::CurrentConnection;
         }
+        if (wcsstr(cmd, L"--tab=home")) {
+            g_state.currentTab = AppTab::Home;
+        }
+        if (wcsstr(cmd, L"--tab=setting")) {
+            g_state.currentTab = AppTab::Setting;
+        }
+        const wchar_t* sStreams = wcsstr(cmd, L"--streams=");
+        if (sStreams) {
+            g_state.currentTab = AppTab::CurrentConnection;
+            int val = _wtoi(sStreams + 10);
+            if (val >= 0 && val <= 8) {
 #if defined(_DEBUG) || !defined(NDEBUG)
-        if (wcsstr(cmd, L"--streams=2")) {
-            g_state.currentTab = AppTab::CurrentConnection;
-            g_debug.simulatedStreamCount = 2;
-        } else if (wcsstr(cmd, L"--streams=0")) {
-            g_state.currentTab = AppTab::CurrentConnection;
-            g_debug.simulatedStreamCount = 0;
-        } else if (wcsstr(cmd, L"--streams=1")) {
-            g_state.currentTab = AppTab::CurrentConnection;
-            g_debug.simulatedStreamCount = 1;
+                g_debug.simulatedStreamCount = val;
+#endif
+            }
         }
         if (wcsstr(cmd, L"--mute")) {
             g_state.isMicMuted = true;
@@ -383,6 +388,7 @@ void InitGui(HWND hWnd, Dx11Context& dx) {
             g_state.isMicSpeaking = true;
             for (auto& p : g_state.peers) p.isSpeaking = true;
         }
+#if defined(_DEBUG) || !defined(NDEBUG)
         if (wcsstr(cmd, L"--show-debug") || wcsstr(cmd, L"--debug")) {
             g_debug.showDebugButton = true;
             g_debug.showDebugWindow = true;
@@ -490,29 +496,19 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImVec2 winPos = ImGui::GetWindowPos();
     float headerHeight = 74.0f * g_dpiScale;
 
-    // Top-left: Display ONLY active peers (Waiting [Yellow] or Online [Green]).
-    // "me" and disconnected/offline peers are NOT shown in activeTopPeers per user specification.
-    std::vector<Peer*> activeTopPeers;
-    for (auto& peer : g_state.peers) {
-        if (peer.status == PeerStatus::Waiting || peer.status == PeerStatus::Online) {
-            activeTopPeers.push_back(&peer);
-        }
-    }
-
     // Load default profile picture for avatar fallback
     ID3D11ShaderResourceView* defaultAvatarTex = IconManager::Get().GetImageTexture("ext/img/default profile picture.png");
 
-    // Point 1: Avatar radius increased to 24px (diameter 48px)
     float topAvatarRadius = 24.0f * g_dpiScale;
-    float topAvatarSpacing = 12.0f * g_dpiScale;
+    float topAvatarSpacing = 10.0f * g_dpiScale;
     float topAvatarY = (headerHeight - (topAvatarRadius * 2.0f)) * 0.5f;
 
-    // Point 1: Enlarged tabs with 1.10x typography scale and larger padding
-    float navBtnHeight = 44.0f * g_dpiScale;
-    float paddingX = 26.0f * g_dpiScale;
-    float spacing = 12.0f * g_dpiScale;
+    // Center tab buttons calculations (Structured rounded rectangle style)
+    float navBtnHeight = 38.0f * g_dpiScale;
+    float paddingX = 22.0f * g_dpiScale;
+    float spacing = 10.0f * g_dpiScale;
 
-    ImGui::SetWindowFontScale(1.10f);
+    ImGui::SetWindowFontScale(1.05f);
     float wHome = ImGui::CalcTextSize("home").x + paddingX * 2.0f;
     float wConn = ImGui::CalcTextSize("current connection").x + paddingX * 2.0f;
     float wSet  = ImGui::CalcTextSize("setting").x + paddingX * 2.0f;
@@ -522,166 +518,290 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     float homeX = xConn - spacing - wHome;
     float xSet  = xConn + wConn + spacing;
 
-    // Point 1: Group of avatars (active peers + "me") positioned to end right before [ home ]
-    float gapBeforeHome = 32.0f * g_dpiScale;
-    float avatarsEndX = homeX - gapBeforeHome;
+    // =========================================================================
+    // Requirement 1: Strict TopBar Avatar Order & Overflow Limit
+    // Order: [me] (far left) -> [Waiting peers] -> [Silent Online peers] -> [Speaking Online peers] (right)
+    // Clipping limit: Strictly stops at homeX - 20px. Never pushes [ home ].
+    // If overflow, displays +N badge at the end. [me] ALWAYS remains visible at far left.
+    // =========================================================================
+    struct TopAvatarItem {
+        bool isMe;
+        Peer* peer;
+    };
+    std::vector<TopAvatarItem> topList;
 
-    int totalAvatarsCount = (int)activeTopPeers.size() + 1; // other active peers + "me"
-    float avatarsGroupWidth = totalAvatarsCount * (topAvatarRadius * 2.0f) + (totalAvatarsCount - 1) * topAvatarSpacing;
+    // 1. "me" is ALWAYS the very first item at the far left
+    topList.push_back({ true, nullptr });
 
-    float curX = avatarsEndX - avatarsGroupWidth;
-    if (curX < 20.0f * g_dpiScale) {
-        curX = 20.0f * g_dpiScale;
+    // 2. Waiting peers (en attente / pastille jaune)
+    for (auto& peer : g_state.peers) {
+        if (peer.status == PeerStatus::Waiting) {
+            topList.push_back({ false, &peer });
+        }
     }
 
-    for (size_t i = 0; i < activeTopPeers.size(); ++i) {
-        Peer* peer = activeTopPeers[i];
+    // 3. Other connected silent peers (Online && !isSpeaking)
+    for (auto& peer : g_state.peers) {
+        if (peer.status == PeerStatus::Online && !peer.isSpeaking) {
+            topList.push_back({ false, &peer });
+        }
+    }
+
+    // 4. People currently speaking (Online && isSpeaking, VAD actif)
+    for (auto& peer : g_state.peers) {
+        if (peer.status == PeerStatus::Online && peer.isSpeaking) {
+            topList.push_back({ false, &peer });
+        }
+    }
+
+    float startX = 20.0f * g_dpiScale;
+    float maxAvatarsEndX = homeX - 20.0f * g_dpiScale;
+    float availW = maxAvatarsEndX - startX;
+    if (availW < topAvatarRadius * 2.0f) availW = topAvatarRadius * 2.0f;
+
+    float avatarDiam = topAvatarRadius * 2.0f;
+    float plusBadgeW = 42.0f * g_dpiScale;
+
+    int totalAvatars = (int)topList.size();
+    float totalNeededW = totalAvatars * avatarDiam + (totalAvatars - 1) * topAvatarSpacing;
+
+    int visibleCount = totalAvatars;
+    int overflowCount = 0;
+
+    if (totalNeededW > availW) {
+        // Space reserved for 'me' (index 0) + '+N' badge
+        float reservedW = avatarDiam + topAvatarSpacing + plusBadgeW;
+        float remainingW = availW - reservedW;
+        int additional = (remainingW > 0.0f) ? (int)(remainingW / (avatarDiam + topAvatarSpacing)) : 0;
+        visibleCount = 1 + additional;
+        if (visibleCount > totalAvatars) visibleCount = totalAvatars;
+        overflowCount = totalAvatars - visibleCount;
+    }
+
+    float curX = startX;
+    for (int i = 0; i < visibleCount; ++i) {
+        const auto& item = topList[i];
         ImGui::SetCursorPos(ImVec2(curX, topAvatarY));
-        ImVec2 btnScreenPos = ImGui::GetCursorScreenPos();
-        ImVec2 center(btnScreenPos.x + topAvatarRadius, btnScreenPos.y + topAvatarRadius);
-        std::string btnId = "##top_peer_" + std::to_string(i) + "_" + peer->name;
+        ImVec2 screenMin = ImGui::GetCursorScreenPos();
+        ImVec2 center(screenMin.x + topAvatarRadius, screenMin.y + topAvatarRadius);
 
-        ImGui::InvisibleButton(btnId.c_str(), ImVec2(topAvatarRadius * 2.0f, topAvatarRadius * 2.0f));
-        bool isHovered = ImGui::IsItemHovered();
+        if (item.isMe) {
+            // Local Host "me" Avatar
+            ImGui::InvisibleButton("##top_me_avatar", ImVec2(avatarDiam, avatarDiam));
+            bool meHovered = ImGui::IsItemHovered();
 
-        // Draw avatar circular disc using default profile picture
-        DrawCircularAvatar(drawList, defaultAvatarTex, center, topAvatarRadius, peer->name);
+            DrawCircularAvatar(drawList, defaultAvatarTex, center, topAvatarRadius, "Me");
 
-        // Status border
-        if (peer->status == PeerStatus::Waiting) {
-            // Yellow waiting ring with soft pulse
-            float pulse = 1.0f + 0.08f * sinf((float)ImGui::GetTime() * 4.0f);
-            drawList->AddCircle(center, topAvatarRadius * pulse, IM_COL32(255, 204, 0, 230), 32, 2.2f * g_dpiScale);
-        } else if (peer->status == PeerStatus::Online) {
-            // Green speech ring ONLY when actively speaking
-            if (peer->isSpeaking) {
+            // Speech glowing green ring ONLY when speaking
+            if (g_state.isMicSpeaking) {
                 drawList->AddCircle(center, topAvatarRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.5f * g_dpiScale);
                 float glow = 2.0f + 1.5f * sinf((float)ImGui::GetTime() * 6.0f);
                 drawList->AddCircle(center, topAvatarRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.8f * g_dpiScale);
             }
-            // When silent: NO border or colored contour
+
+            if (meHovered) {
+                ImGui::BeginTooltip();
+                ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.98f, 1.0f), "Host: Me (Local User)");
+                ImGui::TextDisabled(g_state.isMicSpeaking ? "Status: Speaking" : "Status: Connected (Silent)");
+                ImGui::TextDisabled("Right-click for audio / mic options");
+                ImGui::EndTooltip();
+            }
+
+            if (ImGui::BeginPopupContextItem("##top_me_avatar", ImGuiPopupFlags_MouseButtonRight)) {
+                ImGui::Text("Host Audio Options");
+                ImGui::Separator();
+                ImGui::MenuItem("Mute Microphone", nullptr, &g_state.isMicMuted);
+                ImGui::MenuItem("Deafen Audio", nullptr, &g_state.isAudioDeafened);
+                ImGui::MenuItem("RNNoise Noise Suppression", nullptr, &g_state.rnnoiseNoiseSuppression);
+                ImGui::EndPopup();
+            }
+        } else {
+            // Remote Peer Avatar
+            Peer* peer = item.peer;
+            std::string btnId = "##top_peer_" + std::to_string(i) + "_" + peer->name;
+            ImGui::InvisibleButton(btnId.c_str(), ImVec2(avatarDiam, avatarDiam));
+            bool isHovered = ImGui::IsItemHovered();
+
+            DrawCircularAvatar(drawList, defaultAvatarTex, center, topAvatarRadius, peer->name);
+
+            // Status border / rings
+            if (peer->status == PeerStatus::Waiting) {
+                float pulse = 1.0f + 0.08f * sinf((float)ImGui::GetTime() * 4.0f);
+                drawList->AddCircle(center, topAvatarRadius * pulse, IM_COL32(255, 204, 0, 230), 32, 2.2f * g_dpiScale);
+            } else if (peer->status == PeerStatus::Online) {
+                if (peer->isSpeaking) {
+                    drawList->AddCircle(center, topAvatarRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.5f * g_dpiScale);
+                    float glow = 2.0f + 1.5f * sinf((float)ImGui::GetTime() * 6.0f);
+                    drawList->AddCircle(center, topAvatarRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.8f * g_dpiScale);
+                }
+            }
+
+            if (isHovered) {
+                ImGui::BeginTooltip();
+                ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.98f, 1.0f), "%s", peer->name.c_str());
+                if (peer->status == PeerStatus::Waiting) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.1f, 1.0f), "Status: Waiting for connection...");
+                } else {
+                    ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), "Status: Connected (Online)");
+                    ImGui::TextDisabled(peer->isSpeaking ? "Speaking" : "Idle");
+                }
+                if (peer->isStreamHidden) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "Stream: Masqué");
+                }
+                ImGui::TextDisabled("Right-click for options");
+                ImGui::EndTooltip();
+            }
+
+            if (ImGui::BeginPopupContextItem(btnId.c_str(), ImGuiPopupFlags_MouseButtonRight)) {
+                ImGui::Text("%s Options", peer->name.c_str());
+                ImGui::Separator();
+                if (peer->isStreamHidden) {
+                    if (ImGui::MenuItem("Afficher le stream (Show stream)")) {
+                        peer->isStreamHidden = false;
+                    }
+                } else {
+                    if (ImGui::MenuItem("Masquer le stream (Hide stream)")) {
+                        peer->isStreamHidden = true;
+                    }
+                }
+                ImGui::Separator();
+                ImGui::Text("Volume: %.0f%%", peer->volume * 100.0f);
+                if (ImGui::SliderFloat("##top_peer_vol", &peer->volume, 0.0f, 1.5f, "%.0f%%")) {
+                    SavePeers(g_state);
+                }
+                ImGui::MenuItem("Mute Audio", nullptr, &peer->isMuted);
+                ImGui::MenuItem("Deafen Audio", nullptr, &peer->isDeafened);
+                if (ImGui::MenuItem("Poke Peer (Ping)")) {
+                    peer->pokeTimer = 2.0f;
+                }
+                ImGui::EndPopup();
+            }
         }
 
-        // Hover Tooltip
-        if (isHovered) {
+        curX += avatarDiam + topAvatarSpacing;
+    }
+
+    // Overflow Badge (+N) if avatars exceeded available space
+    if (overflowCount > 0) {
+        ImGui::SetCursorPos(ImVec2(curX, topAvatarY));
+        ImVec2 badgeScreenMin = ImGui::GetCursorScreenPos();
+        ImVec2 badgeScreenMax = ImVec2(badgeScreenMin.x + plusBadgeW, badgeScreenMin.y + avatarDiam);
+
+        ImGui::InvisibleButton("##top_overflow_badge", ImVec2(plusBadgeW, avatarDiam));
+        bool isBadgeHovered = ImGui::IsItemHovered();
+
+        // Dark rounded pill background
+        ImU32 badgeBg = isBadgeHovered ? IM_COL32(40, 43, 56, 255) : IM_COL32(28, 30, 39, 255);
+        drawList->AddRectFilled(badgeScreenMin, badgeScreenMax, badgeBg, 12.0f * g_dpiScale);
+        drawList->AddRect(badgeScreenMin, badgeScreenMax, IM_COL32(65, 70, 90, 200), 12.0f * g_dpiScale, 0, 1.0f);
+
+        std::string plusText = "+" + std::to_string(overflowCount);
+        ImVec2 plusTextSize = ImGui::CalcTextSize(plusText.c_str());
+        drawList->AddText(ImVec2(badgeScreenMin.x + (plusBadgeW - plusTextSize.x) * 0.5f,
+                                 badgeScreenMin.y + (avatarDiam - plusTextSize.y) * 0.5f),
+                          IM_COL32(230, 235, 245, 255), plusText.c_str());
+
+        if (isBadgeHovered) {
             ImGui::BeginTooltip();
-            ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.98f, 1.0f), "%s", peer->name.c_str());
-            if (peer->status == PeerStatus::Waiting) {
-                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.1f, 1.0f), "Status: Waiting for connection...");
-            } else {
-                ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), "Status: Connected (Online)");
-                ImGui::TextDisabled(peer->isSpeaking ? "Speaking" : "Idle");
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1.0f), "Membres additionnels (+%d) :", overflowCount);
+            ImGui::Separator();
+            for (int k = visibleCount; k < totalAvatars; ++k) {
+                Peer* p = topList[k].peer;
+                if (!p) continue;
+                ImVec4 stCol = (p->status == PeerStatus::Online) ? ImVec4(0.3f, 0.9f, 0.4f, 1.0f) : ImVec4(1.0f, 0.8f, 0.2f, 1.0f);
+                ImGui::TextColored(stCol, "● ");
+                ImGui::SameLine();
+                ImGui::Text("%s %s%s", p->name.c_str(),
+                            (p->status == PeerStatus::Waiting) ? "(en attente)" : (p->isSpeaking ? "(parle)" : ""),
+                            p->isStreamHidden ? " [stream masqué]" : "");
             }
-            ImGui::TextDisabled("Right-click for options");
+            ImGui::TextDisabled("Clic droit pour gérer les membres masqués");
             ImGui::EndTooltip();
         }
 
-        // Right-click context menu directly on top-left small circle
-        if (ImGui::BeginPopupContextItem(btnId.c_str(), ImGuiPopupFlags_MouseButtonRight)) {
-            ImGui::Text("%s Options", peer->name.c_str());
+        if (ImGui::BeginPopupContextItem("##top_overflow_badge", ImGuiPopupFlags_MouseButtonRight)) {
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1.0f), "Gestion des membres masqués");
             ImGui::Separator();
-            ImGui::Text("Volume: %.0f%%", peer->volume * 100.0f);
-            if (ImGui::SliderFloat("##top_peer_vol", &peer->volume, 0.0f, 1.5f, "%.0f%%")) {
-                SavePeers(g_state);
-            }
-            ImGui::MenuItem("Mute Audio", nullptr, &peer->isMuted);
-            ImGui::MenuItem("Deafen Audio", nullptr, &peer->isDeafened);
-            if (ImGui::MenuItem("Poke Peer (Ping)")) {
-                peer->pokeTimer = 2.0f;
+            for (int k = visibleCount; k < totalAvatars; ++k) {
+                Peer* p = topList[k].peer;
+                if (!p) continue;
+                std::string subMenu = p->name + " (" + (p->status == PeerStatus::Waiting ? "attente" : "online") + ")";
+                if (ImGui::BeginMenu(subMenu.c_str())) {
+                    if (p->isStreamHidden) {
+                        if (ImGui::MenuItem("Afficher le stream")) p->isStreamHidden = false;
+                    } else {
+                        if (ImGui::MenuItem("Masquer le stream")) p->isStreamHidden = true;
+                    }
+                    ImGui::MenuItem("Mute Audio", nullptr, &p->isMuted);
+                    ImGui::MenuItem("Deafen Audio", nullptr, &p->isDeafened);
+                    ImGui::EndMenu();
+                }
             }
             ImGui::EndPopup();
         }
-
-        curX += topAvatarRadius * 2.0f + topAvatarSpacing;
-    }
-
-    // Place avatar "me" immediately following the peers (ending right before [ home ])
-    float meRadius = topAvatarRadius;
-    float meY = (headerHeight - (meRadius * 2.0f)) * 0.5f;
-    float meX = curX;
-
-    ImGui::SetCursorPos(ImVec2(meX, meY));
-    ImVec2 meScreenPos = ImGui::GetCursorScreenPos();
-    ImVec2 meCenter(meScreenPos.x + meRadius, meScreenPos.y + meRadius);
-
-    ImGui::InvisibleButton("##top_me_avatar", ImVec2(meRadius * 2.0f, meRadius * 2.0f));
-    bool meHovered = ImGui::IsItemHovered();
-
-    // Draw avatar using default profile picture as circular disc
-    DrawCircularAvatar(drawList, defaultAvatarTex, meCenter, meRadius, "Me");
-
-    // Speech glowing green ring ONLY when speaking
-    if (g_state.isMicSpeaking) {
-        drawList->AddCircle(meCenter, meRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.5f * g_dpiScale);
-        float glow = 2.0f + 1.5f * sinf((float)ImGui::GetTime() * 6.0f);
-        drawList->AddCircle(meCenter, meRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.8f * g_dpiScale);
-    }
-    // When silent: NO colored ring or contour
-
-    if (meHovered) {
-        ImGui::BeginTooltip();
-        ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.98f, 1.0f), "Host: Me (Local User)");
-        ImGui::TextDisabled(g_state.isMicSpeaking ? "Status: Speaking" : "Status: Connected (Silent)");
-        ImGui::TextDisabled("Right-click for audio / mic options");
-        ImGui::EndTooltip();
-    }
-
-    if (ImGui::BeginPopupContextItem("##top_me_avatar", ImGuiPopupFlags_MouseButtonRight)) {
-        ImGui::Text("Host Audio Options");
-        ImGui::Separator();
-        ImGui::MenuItem("Mute Microphone", nullptr, &g_state.isMicMuted);
-        ImGui::MenuItem("Deafen Audio", nullptr, &g_state.isAudioDeafened);
-        ImGui::MenuItem("RNNoise Noise Suppression", nullptr, &g_state.rnnoiseNoiseSuppression);
-        ImGui::EndPopup();
     }
 
     float navY = (headerHeight - navBtnHeight) * 0.5f;
 
-    // Active pill color: #5c242e (exact wine/maroon tone from user's sketch)
-    ImVec4 activeTabColor = ImVec4(0.361f, 0.141f, 0.180f, 1.00f); // #5c242e
-    ImVec4 activeTabHover = ImVec4(0.440f, 0.170f, 0.220f, 1.00f);
-    ImVec4 inactiveTabColor = ImVec4(0.094f, 0.098f, 0.118f, 1.00f);
-    ImVec4 inactiveTabHover = ImVec4(0.145f, 0.153f, 0.188f, 1.00f);
+    // Structured rounded rectangle style matching the bottom-left dock panel (#2B2D31 / #1E1F22)
+    ImVec4 activeTabColor    = ImVec4(0.361f, 0.141f, 0.180f, 1.00f); // #5C242E
+    ImVec4 activeTabHover    = ImVec4(0.431f, 0.157f, 0.212f, 1.00f); // #6E2836
+    ImVec4 activeTabActive   = ImVec4(0.302f, 0.110f, 0.141f, 1.00f); // #4D1C24
+    ImVec4 activeTabBorder   = ImVec4(0.541f, 0.212f, 0.271f, 1.00f); // #8A3645
+    ImVec4 activeTextColor   = ImVec4(1.000f, 1.000f, 1.000f, 1.00f);
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 22.0f * g_dpiScale);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(paddingX, 10.0f * g_dpiScale));
+    ImVec4 inactiveTabColor  = ImVec4(0.169f, 0.176f, 0.192f, 1.00f); // #2B2D31
+    ImVec4 inactiveTabHover  = ImVec4(0.208f, 0.216f, 0.235f, 1.00f); // #35373C
+    ImVec4 inactiveTabActive = ImVec4(0.118f, 0.122f, 0.133f, 1.00f); // #1E1F22
+    ImVec4 inactiveTabBorder = ImVec4(0.247f, 0.259f, 0.282f, 0.90f); // #3F4248
+    ImVec4 inactiveTextColor = ImVec4(0.859f, 0.871f, 0.882f, 1.00f); // #DBDEE1
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 7.0f * g_dpiScale);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f * g_dpiScale);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(paddingX, 6.0f * g_dpiScale));
 
     // [ home ] tab button
     ImGui::SetCursorPos(ImVec2(homeX, navY));
     bool isHome = (g_state.currentTab == AppTab::Home);
     ImGui::PushStyleColor(ImGuiCol_Button, isHome ? activeTabColor : inactiveTabColor);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, isHome ? activeTabHover : inactiveTabHover);
-    ImGui::PushStyleColor(ImGuiCol_Border, isHome ? ImVec4(0.49f, 0.19f, 0.25f, 1.0f) : ImVec4(0.23f, 0.23f, 0.27f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, isHome ? activeTabActive : inactiveTabActive);
+    ImGui::PushStyleColor(ImGuiCol_Border, isHome ? activeTabBorder : inactiveTabBorder);
+    ImGui::PushStyleColor(ImGuiCol_Text, isHome ? activeTextColor : inactiveTextColor);
 
     if (ImGui::Button("home", ImVec2(wHome, navBtnHeight))) {
         g_state.currentTab = AppTab::Home;
     }
-    ImGui::PopStyleColor(3);
+    ImGui::PopStyleColor(5);
 
     // [ current connection ] tab button
     ImGui::SetCursorPos(ImVec2(xConn, navY));
     bool isConn = (g_state.currentTab == AppTab::CurrentConnection);
     ImGui::PushStyleColor(ImGuiCol_Button, isConn ? activeTabColor : inactiveTabColor);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, isConn ? activeTabHover : inactiveTabHover);
-    ImGui::PushStyleColor(ImGuiCol_Border, isConn ? ImVec4(0.49f, 0.19f, 0.25f, 1.0f) : ImVec4(0.23f, 0.23f, 0.27f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, isConn ? activeTabActive : inactiveTabActive);
+    ImGui::PushStyleColor(ImGuiCol_Border, isConn ? activeTabBorder : inactiveTabBorder);
+    ImGui::PushStyleColor(ImGuiCol_Text, isConn ? activeTextColor : inactiveTextColor);
 
     if (ImGui::Button("current connection", ImVec2(wConn, navBtnHeight))) {
         g_state.currentTab = AppTab::CurrentConnection;
     }
-    ImGui::PopStyleColor(3);
+    ImGui::PopStyleColor(5);
 
     // [ setting ] tab button
     ImGui::SetCursorPos(ImVec2(xSet, navY));
     bool isSet = (g_state.currentTab == AppTab::Setting);
     ImGui::PushStyleColor(ImGuiCol_Button, isSet ? activeTabColor : inactiveTabColor);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, isSet ? activeTabHover : inactiveTabHover);
-    ImGui::PushStyleColor(ImGuiCol_Border, isSet ? ImVec4(0.49f, 0.19f, 0.25f, 1.0f) : ImVec4(0.23f, 0.23f, 0.27f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, isSet ? activeTabActive : inactiveTabActive);
+    ImGui::PushStyleColor(ImGuiCol_Border, isSet ? activeTabBorder : inactiveTabBorder);
+    ImGui::PushStyleColor(ImGuiCol_Text, isSet ? activeTextColor : inactiveTextColor);
 
     if (ImGui::Button("setting", ImVec2(wSet, navBtnHeight))) {
         g_state.currentTab = AppTab::Setting;
     }
-    ImGui::PopStyleColor(3);
-    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(5);
+    ImGui::PopStyleVar(3);
     ImGui::SetWindowFontScale(1.0f); // Reset font scale back to nominal
 
     // Requirement 1 & 2: Dynamic System controls pill on ForegroundDrawList
@@ -1154,51 +1274,17 @@ static void RenderHomeView(float contentWidth, float contentHeight) {
     ImGui::EndChild();
 }
 
-// Secondary View: Current Connection (Live Screen, Maximal Participant Avatars, and Floating Collaborative Dock)
+// Secondary View: Current Connection (Live Screen, Adaptive Grid Layout, Focus Mode, Resizable Splitters, and Collaborative Dock)
 // Edge-to-edge full bleed rendering strictly following user sketch
 static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     ImDrawList* drawList = ImGui::GetWindowDrawList();
+    ImDrawList* fgDrawList = ImGui::GetForegroundDrawList();
+    ImGuiIO& io = ImGui::GetIO();
 
     // 1. Fullscreen Edge-to-Edge Stream canvas covering (0, 0) to (windowWidth, windowHeight)
     ImVec2 streamMin = ImVec2(0, 0);
     ImVec2 streamMax = ImVec2(windowWidth, windowHeight);
     drawList->AddRectFilled(streamMin, streamMax, IM_COL32(11, 12, 16, 255));
-
-    // Gather active session participants (Me + connected/waiting peers)
-    struct ParticipantBubble {
-        std::string name;
-        std::string role;
-        PeerStatus status;
-        bool isSpeaking;
-        bool isMe;
-        Peer* peerPtr = nullptr;
-    };
-
-    std::vector<ParticipantBubble> participants;
-
-    // Requirement 1: In the central area, "me" is always shown, plus ONLY peers who are ACTUALLY connected (status == Online).
-    // Peers in "Waiting" status are NEVER displayed as big central bubbles!
-    participants.push_back({ "me", "local host", PeerStatus::Online, g_state.isMicSpeaking, true, nullptr });
-
-    for (auto& peer : g_state.peers) {
-        if (peer.status == PeerStatus::Online) {
-            participants.push_back({ peer.name, "live stream", peer.status, peer.isSpeaking, false, &peer });
-        }
-    }
-
-    int streamCount = 0;
-#if defined(_DEBUG) || !defined(NDEBUG)
-    if (g_debug.simulatedStreamCount > 0) {
-        streamCount = g_debug.simulatedStreamCount;
-    }
-#endif
-    if (streamCount == 0 && g_state.isStreaming) {
-        streamCount = 1;
-    }
-
-    // Load default profile picture texture & stream test texture via WIC
-    ID3D11ShaderResourceView* defaultAvatarTex = IconManager::Get().GetImageTexture("ext/img/default profile picture.png");
-    ID3D11ShaderResourceView* streamTex = IconManager::Get().GetImageTexture("ext/img/helldivers-2-1_33b62d4e81ea4ef68c12cba0363065df-4243320100.jpg");
 
     // Dockbar dimensions for overlay & boundary calculations
     float btnW = 46.0f * g_dpiScale;
@@ -1212,100 +1298,129 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     ImVec2 dockMin = ImVec2((windowWidth - dockWidth) * 0.5f, windowHeight - dockHeight - 24.0f * g_dpiScale);
     ImVec2 dockMax = ImVec2(dockMin.x + dockWidth, dockMin.y + dockHeight);
 
+    bool overDock = (io.MousePos.y >= dockMin.y - 12.0f * g_dpiScale && 
+                     io.MousePos.y <= dockMax.y + 12.0f * g_dpiScale &&
+                     io.MousePos.x >= dockMin.x - 12.0f * g_dpiScale && 
+                     io.MousePos.x <= dockMax.x + 12.0f * g_dpiScale);
+    bool overHeader = (io.MousePos.y <= 74.0f * g_dpiScale);
+
+    // Right-dock boundaries (Audio volume & Fullscreen)
+    float rDockW = 96.0f * g_dpiScale;
+    float rDockH = 56.0f * g_dpiScale;
+    ImVec2 rDockMin = ImVec2(windowWidth - rDockW - 20.0f * g_dpiScale, windowHeight - rDockH - 24.0f * g_dpiScale);
+    ImVec2 rDockMax = ImVec2(rDockMin.x + rDockW, rDockMin.y + rDockH);
+    bool overRDock = (io.MousePos.x >= rDockMin.x && io.MousePos.x <= rDockMax.x &&
+                      io.MousePos.y >= rDockMin.y && io.MousePos.y <= rDockMax.y);
+
+    // Gather active session participants (for bubble fallback mode)
+    struct ParticipantBubble {
+        std::string name;
+        std::string role;
+        PeerStatus status;
+        bool isSpeaking;
+        bool isMe;
+        Peer* peerPtr = nullptr;
+    };
+    std::vector<ParticipantBubble> participants;
+    participants.push_back({ "me", "local host", PeerStatus::Online, g_state.isMicSpeaking, true, nullptr });
+    for (auto& peer : g_state.peers) {
+        if (peer.status == PeerStatus::Online) {
+            participants.push_back({ peer.name, "live stream", peer.status, peer.isSpeaking, false, &peer });
+        }
+    }
+
+    // =========================================================================
+    // Active Streams Collection (Excluding hidden streams)
+    // =========================================================================
+    struct ActiveStream {
+        std::string name;
+        std::string role;
+        bool isMe;
+        Peer* peerPtr = nullptr;
+        bool isSpeaking = false;
+    };
+    std::vector<ActiveStream> streamList;
+
+    if (g_state.isStreaming) {
+        streamList.push_back({ "me", "local host", true, nullptr, g_state.isMicSpeaking });
+    }
+    for (auto& peer : g_state.peers) {
+        if (peer.status == PeerStatus::Online && !peer.isStreamHidden) {
+            streamList.push_back({ peer.name, "remote screen", false, &peer, peer.isSpeaking });
+        }
+    }
+
+#if defined(_DEBUG) || !defined(NDEBUG)
+    if (g_debug.simulatedStreamCount > 0) {
+        int simNeeded = g_debug.simulatedStreamCount;
+        streamList.clear();
+        for (auto& peer : g_state.peers) {
+            if (peer.status == PeerStatus::Online && !peer.isStreamHidden) {
+                if ((int)streamList.size() < simNeeded) {
+                    streamList.push_back({ peer.name, "remote screen", false, &peer, peer.isSpeaking });
+                }
+            }
+        }
+        int fakeIdx = 1;
+        while ((int)streamList.size() < simNeeded) {
+            std::string sName = (fakeIdx == 1) ? "Helldivers Stream" : ("Squad Stream #" + std::to_string(fakeIdx));
+            streamList.push_back({ sName, "simulated 1080p", false, nullptr, false });
+            fakeIdx++;
+        }
+    }
+#endif
+
+    ID3D11ShaderResourceView* defaultAvatarTex = IconManager::Get().GetImageTexture("ext/img/default profile picture.png");
+    ID3D11ShaderResourceView* streamTex = IconManager::Get().GetImageTexture("ext/img/helldivers-2-1_33b62d4e81ea4ef68c12cba0363065df-4243320100.jpg");
+
+    int streamCount = (int)streamList.size();
+
+    // =========================================================================
+    // Dynamic Grid Engine & Focus Mode
+    // =========================================================================
     if (streamCount > 0) {
-        // =========================================================================
-        // Requirement 3: Full Container Layout (0 margins, 0 paddings, 100% width & height)
-        // Contiguous side-by-side stream cards (0 space/margin between them) with Drag & Slide support
-        // =========================================================================
-        static float s_streamScrollX = 0.0f;
-        static float s_streamScrollTargetX = 0.0f;
-        static bool s_isDraggingStream = false;
-        static float s_dragStartMouseX = 0.0f;
-        static float s_dragStartScrollX = 0.0f;
-
-        float cellW = (streamCount == 1) ? windowWidth : (windowWidth * 0.5f);
-        float cellH = windowHeight;
-        float totalWidth = streamCount * cellW;
-
-        float minScrollX = fminf(0.0f, windowWidth - totalWidth);
-        float maxScrollX = 0.0f;
-
-        ImGuiIO& io = ImGui::GetIO();
-
-        bool overDock = (io.MousePos.y >= dockMin.y - 10.0f * g_dpiScale && 
-                         io.MousePos.y <= dockMax.y + 10.0f * g_dpiScale &&
-                         io.MousePos.x >= dockMin.x - 10.0f * g_dpiScale && 
-                         io.MousePos.x <= dockMax.x + 10.0f * g_dpiScale);
-        bool overHeader = (io.MousePos.y <= 74.0f * g_dpiScale);
-
-        if (totalWidth > windowWidth) {
-            // Drag & Slide via mouse left button
-            if (io.MouseDown[0] && !overDock && !overHeader && !ImGui::IsAnyItemHovered()) {
-                if (!s_isDraggingStream && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                    s_isDraggingStream = true;
-                    s_dragStartMouseX = io.MousePos.x;
-                    s_dragStartScrollX = s_streamScrollTargetX;
-                }
-                if (s_isDraggingStream) {
-                    float delta = io.MousePos.x - s_dragStartMouseX;
-                    s_streamScrollTargetX = s_dragStartScrollX + delta;
-                    // Rubber-band resistance at boundaries
-                    if (s_streamScrollTargetX > maxScrollX) {
-                        float over = s_streamScrollTargetX - maxScrollX;
-                        s_streamScrollTargetX = maxScrollX + over * 0.25f;
-                    } else if (s_streamScrollTargetX < minScrollX) {
-                        float under = minScrollX - s_streamScrollTargetX;
-                        s_streamScrollTargetX = minScrollX - under * 0.25f;
-                    }
-                }
-            } else {
-                s_isDraggingStream = false;
-                // Elastic snap back to boundary
-                if (s_streamScrollTargetX > maxScrollX) {
-                    s_streamScrollTargetX = ImLerp(s_streamScrollTargetX, maxScrollX, io.DeltaTime * 12.0f);
-                } else if (s_streamScrollTargetX < minScrollX) {
-                    s_streamScrollTargetX = ImLerp(s_streamScrollTargetX, minScrollX, io.DeltaTime * 12.0f);
-                }
-            }
-
-            // Mouse wheel support for sliding
-            if (!overDock && !overHeader && !ImGui::IsAnyItemActive()) {
-                float wheelDelta = (io.MouseWheelH != 0.0f) ? io.MouseWheelH : io.MouseWheel;
-                if (wheelDelta != 0.0f) {
-                    s_streamScrollTargetX += wheelDelta * 85.0f * g_dpiScale;
-                    s_streamScrollTargetX = ImClamp(s_streamScrollTargetX, minScrollX, maxScrollX);
-                }
-            }
-
-            // Smooth animated lerp
-            s_streamScrollX = ImLerp(s_streamScrollX, s_streamScrollTargetX, ImClamp(io.DeltaTime * 14.0f, 0.0f, 1.0f));
-            if (fabsf(s_streamScrollX - s_streamScrollTargetX) < 0.2f) {
-                s_streamScrollX = s_streamScrollTargetX;
-            }
-        } else {
-            s_streamScrollX = 0.0f;
-            s_streamScrollTargetX = 0.0f;
-            s_isDraggingStream = false;
+        // Clamp focused index
+        if (g_state.focusedStreamIndex >= streamCount) {
+            g_state.focusedStreamIndex = -1;
         }
 
-        // Render each stream card contiguously
-        for (int s = 0; s < streamCount; ++s) {
-            float bx = s_streamScrollX + s * cellW;
-            float endX = bx + cellW;
+        // Synchronize streamOrder
+        if ((int)g_state.streamOrder.size() != streamCount) {
+            g_state.streamOrder.resize(streamCount);
+            for (int i = 0; i < streamCount; ++i) g_state.streamOrder[i] = i;
+        } else {
+            // Verify indices are valid
+            for (int i = 0; i < streamCount; ++i) {
+                if (g_state.streamOrder[i] < 0 || g_state.streamOrder[i] >= streamCount) {
+                    for (int k = 0; k < streamCount; ++k) g_state.streamOrder[k] = k;
+                    break;
+                }
+            }
+        }
 
-            // Frustum culling
-            if (endX < 0.0f || bx > windowWidth) continue;
+        static bool s_isDraggingSepCol = false;
+        static bool s_isDraggingSepRow = false;
 
-            ImVec2 bMin(bx, 0.0f);
-            ImVec2 bMax(endX, cellH);
+        // Struct to record slot layout
+        struct SlotRect {
+            ImVec2 min;
+            ImVec2 max;
+            float w;
+            float h;
+        };
+        std::vector<SlotRect> slots(streamCount);
 
-            // 1. Container background (black letterbox/pillarbox margins)
-            drawList->AddRectFilled(bMin, bMax, IM_COL32(0, 0, 0, 255));
+        if (g_state.focusedStreamIndex >= 0) {
+            // =====================================================================
+            // FOCUS MODE: Single stream occupying 100% of the screen
+            // =====================================================================
+            int focusSlot = g_state.focusedStreamIndex;
+            int streamIdx = (focusSlot < (int)g_state.streamOrder.size()) ? g_state.streamOrder[focusSlot] : 0;
+            if (streamIdx >= streamCount) streamIdx = 0;
+            const auto& stream = streamList[streamIdx];
 
-            Peer* pPeer = (s < (int)participants.size()) ? participants[s].peerPtr : nullptr;
-            bool isMe = (s < (int)participants.size()) ? participants[s].isMe : false;
-
-            // 2. Requirement 2: Native 16:9 aspect ratio preservation (No stretch)
+            float cellW = windowWidth;
+            float cellH = windowHeight;
             float targetAspect = 16.0f / 9.0f;
             float cellAspect = cellW / cellH;
             ImVec2 renderSize;
@@ -1317,29 +1432,41 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
                 renderSize.y = cellW / targetAspect;
             }
 
-            // Center image in the container cell
-            float imgX = bx + (cellW - renderSize.x) * 0.5f;
+            float imgX = (cellW - renderSize.x) * 0.5f;
             float imgY = (cellH - renderSize.y) * 0.5f;
             ImVec2 imgMin(imgX, imgY);
             ImVec2 imgMax(imgX + renderSize.x, imgY + renderSize.y);
 
             if (streamTex) {
-                drawList->AddImage((ImTextureID)streamTex, imgMin, imgMax, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), IM_COL32_WHITE);
+                drawList->AddImage((ImTextureID)streamTex, imgMin, imgMax, ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE);
             } else {
                 drawList->AddRectFilled(imgMin, imgMax, IM_COL32(20, 22, 28, 255));
             }
 
-            // 3. Subtle vertical separator line between contiguous streams
-            if (s < streamCount - 1) {
-                drawList->AddLine(ImVec2(endX, 0.0f), ImVec2(endX, cellH), IM_COL32(45, 48, 62, 220), 2.0f * g_dpiScale);
+            // Click anywhere on stream to return to grid view
+            ImGui::SetCursorScreenPos(ImVec2(0, 0));
+            if (ImGui::InvisibleButton("##focus_stream_hitbox", ImVec2(windowWidth, windowHeight))) {
+                if (!overDock && !overRDock && !overHeader) {
+                    g_state.focusedStreamIndex = -1; // Toggle back to grid!
+                }
             }
 
-            // =========================================================================
-            // Top-Right Stream Overlay: Volume Control Button
-            // =========================================================================
-            if (!isMe && pPeer) {
+            // Focus banner at the top
+            float bannerW = 380.0f * g_dpiScale;
+            float bannerH = 32.0f * g_dpiScale;
+            ImVec2 banMin((windowWidth - bannerW) * 0.5f, 78.0f * g_dpiScale);
+            ImVec2 banMax(banMin.x + bannerW, banMin.y + bannerH);
+            fgDrawList->AddRectFilled(banMin, banMax, IM_COL32(18, 20, 28, 230), 8.0f * g_dpiScale);
+            fgDrawList->AddRect(banMin, banMax, IM_COL32(70, 75, 95, 180), 8.0f * g_dpiScale, 0, 1.0f);
+            std::string banText = "🗖 Mode Focus : " + stream.name + " (Cliquer pour revenir à la grille)";
+            ImVec2 bTextSize = ImGui::CalcTextSize(banText.c_str());
+            fgDrawList->AddText(ImVec2(banMin.x + (bannerW - bTextSize.x) * 0.5f, banMin.y + (bannerH - bTextSize.y) * 0.5f),
+                                IM_COL32(235, 238, 245, 255), banText.c_str());
+
+            // Stream volume button if peer
+            if (stream.peerPtr) {
                 float volBtnSize = 32.0f * g_dpiScale;
-                float volX = bMax.x - volBtnSize - 20.0f * g_dpiScale;
+                float volX = windowWidth - volBtnSize - 20.0f * g_dpiScale;
                 float volY = 82.0f * g_dpiScale;
                 ImVec2 vMin(volX, volY);
                 ImVec2 vMax(volX + volBtnSize, volY + volBtnSize);
@@ -1347,29 +1474,309 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
                 drawList->AddRectFilled(vMin, vMax, IM_COL32(14, 16, 22, 230), 8.0f * g_dpiScale);
                 drawList->AddRect(vMin, vMax, IM_COL32(65, 70, 85, 170), 8.0f * g_dpiScale, 0, 1.0f);
 
-                const char* vIcon = (pPeer->volume <= 0.01f || pPeer->isMuted) ? "MaterialSymbolsNoSound.svg" : "MaterialSymbolsVolumeDown.svg";
+                const char* vIcon = (stream.peerPtr->volume <= 0.01f || stream.peerPtr->isMuted) ? "MaterialSymbolsNoSound.svg" : "MaterialSymbolsVolumeDown.svg";
                 IconManager::Get().DrawSvgIcon(drawList, vIcon, ImVec2(volX + volBtnSize * 0.5f, volY + volBtnSize * 0.5f), 18.0f * g_dpiScale, IM_COL32(230, 235, 245, 255));
 
                 ImGui::SetCursorScreenPos(vMin);
-                std::string volBtnId = "##str_vol_" + std::to_string(s);
-                if (ImGui::InvisibleButton(volBtnId.c_str(), ImVec2(volBtnSize, volBtnSize))) {
-                    ImGui::OpenPopup(("##popup_vol_" + std::to_string(s)).c_str());
+                if (ImGui::InvisibleButton("##focus_vol_btn", ImVec2(volBtnSize, volBtnSize))) {
+                    ImGui::OpenPopup("##focus_vol_popup");
                 }
-                if (ImGui::IsItemHovered()) {
-                    ImGui::BeginTooltip();
-                    ImGui::Text("Volume: %.0f%% (Click to adjust)", pPeer->volume * 100.0f);
-                    ImGui::EndTooltip();
-                }
-
-                if (ImGui::BeginPopup(("##popup_vol_" + std::to_string(s)).c_str())) {
-                    ImGui::Text("%s Volume", pPeer->name.c_str());
+                if (ImGui::BeginPopup("##focus_vol_popup")) {
+                    ImGui::Text("%s Volume", stream.peerPtr->name.c_str());
                     ImGui::Separator();
-                    if (ImGui::SliderFloat("##vol_slider", &pPeer->volume, 0.0f, 1.5f, "%.0f%%")) {
+                    if (ImGui::SliderFloat("##vol_sl", &stream.peerPtr->volume, 0.0f, 1.5f, "%.0f%%")) {
                         SavePeers(g_state);
                     }
-                    ImGui::MenuItem("Mute Audio", nullptr, &pPeer->isMuted);
-                    ImGui::MenuItem("Deafen Audio", nullptr, &pPeer->isDeafened);
+                    ImGui::MenuItem("Mute Audio", nullptr, &stream.peerPtr->isMuted);
+                    ImGui::MenuItem("Deafen Audio", nullptr, &stream.peerPtr->isDeafened);
                     ImGui::EndPopup();
+                }
+            }
+        } else {
+            // =====================================================================
+            // GRID MODE: Adaptive NxM Layout with 2px Resizable Splitters
+            // =====================================================================
+            int cols = 1, rows = 1;
+            if (streamCount == 1) {
+                cols = 1; rows = 1;
+            } else if (streamCount == 2) {
+                cols = 2; rows = 1; // Side by side
+            } else if (streamCount <= 4) {
+                cols = 2; rows = 2; // 2x2
+            } else if (streamCount <= 6) {
+                cols = 3; rows = 2; // 3x2
+            } else {
+                cols = 4; rows = 2; // 4x2
+            }
+
+            // Calculate cell bounds for each slot
+            for (int slot = 0; slot < streamCount; ++slot) {
+                int c = slot % cols;
+                int r = slot / cols;
+
+                float cellX = 0.0f, cellY = 0.0f, cellW = 0.0f, cellH = 0.0f;
+
+                // Column dimension
+                if (cols == 2) {
+                    float splitX = windowWidth * g_state.gridSplitCol;
+                    if (c == 0) {
+                        cellX = 0.0f;
+                        cellW = splitX;
+                    } else {
+                        cellX = splitX;
+                        cellW = windowWidth - splitX;
+                    }
+                } else {
+                    cellW = windowWidth / (float)cols;
+                    cellX = c * cellW;
+                }
+
+                // Row dimension
+                if (rows == 2) {
+                    float splitY = windowHeight * g_state.gridSplitRow;
+                    if (r == 0) {
+                        cellY = 0.0f;
+                        cellH = splitY;
+                    } else {
+                        cellY = splitY;
+                        cellH = windowHeight - splitY;
+                    }
+                } else {
+                    cellH = windowHeight;
+                    cellY = 0.0f;
+                }
+
+                slots[slot] = { ImVec2(cellX, cellY), ImVec2(cellX + cellW, cellY + cellH), cellW, cellH };
+            }
+
+            // Render each cell in grid
+            for (int slot = 0; slot < streamCount; ++slot) {
+                const auto& sr = slots[slot];
+                int streamIdx = g_state.streamOrder[slot];
+                if (streamIdx >= streamCount) streamIdx = 0;
+                const auto& stream = streamList[streamIdx];
+
+                // 1. Container background (black letterbox)
+                drawList->AddRectFilled(sr.min, sr.max, IM_COL32(8, 9, 12, 255));
+
+                // 2. Preserve native 16:9 aspect ratio
+                float targetAspect = 16.0f / 9.0f;
+                float cellAspect = sr.w / sr.h;
+                ImVec2 renderSize;
+                if (cellAspect > targetAspect) {
+                    renderSize.y = sr.h;
+                    renderSize.x = sr.h * targetAspect;
+                } else {
+                    renderSize.x = sr.w;
+                    renderSize.y = sr.w / targetAspect;
+                }
+
+                float imgX = sr.min.x + (sr.w - renderSize.x) * 0.5f;
+                float imgY = sr.min.y + (sr.h - renderSize.y) * 0.5f;
+                ImVec2 imgMin(imgX, imgY);
+                ImVec2 imgMax(imgX + renderSize.x, imgY + renderSize.y);
+
+                if (streamTex) {
+                    drawList->AddImage((ImTextureID)streamTex, imgMin, imgMax, ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE);
+                } else {
+                    drawList->AddRectFilled(imgMin, imgMax, IM_COL32(20, 22, 28, 255));
+                }
+
+                // 3. Header bar overlay on each tile (Drag handle + title + VAD indicator)
+                float titleH = 26.0f * g_dpiScale;
+                float titlePadX = 10.0f * g_dpiScale;
+                float headerY = (sr.min.y < 74.0f * g_dpiScale) ? (78.0f * g_dpiScale) : (sr.min.y + 12.0f * g_dpiScale);
+                ImVec2 tMin(sr.min.x + 12.0f * g_dpiScale, headerY);
+                std::string titleStr = "::: " + stream.name;
+                ImVec2 tTextSize = ImGui::CalcTextSize(titleStr.c_str());
+                float titleW = tTextSize.x + titlePadX * 2.0f + (stream.isSpeaking ? 16.0f * g_dpiScale : 0.0f);
+                ImVec2 tMax(tMin.x + titleW, tMin.y + titleH);
+
+                drawList->AddRectFilled(tMin, tMax, IM_COL32(18, 20, 26, 210), 6.0f * g_dpiScale);
+                drawList->AddRect(tMin, tMax, IM_COL32(60, 65, 80, 160), 6.0f * g_dpiScale, 0, 1.0f);
+
+                float textDrawX = tMin.x + titlePadX;
+                if (stream.isSpeaking) {
+                    drawList->AddCircleFilled(ImVec2(textDrawX + 4.0f * g_dpiScale, tMin.y + titleH * 0.5f), 3.5f * g_dpiScale, IM_COL32(72, 224, 110, 255));
+                    textDrawX += 14.0f * g_dpiScale;
+                }
+                drawList->AddText(ImVec2(textDrawX, tMin.y + (titleH - tTextSize.y) * 0.5f), IM_COL32(230, 235, 245, 255), titleStr.c_str());
+
+                // 4. Interactive Hitbox: Left Click => Focus Mode, Drag => Reorder, Right Click => Context Menu
+                ImGui::SetCursorScreenPos(sr.min);
+                std::string btnId = "##grid_cell_btn_" + std::to_string(slot);
+                ImGui::InvisibleButton(btnId.c_str(), ImVec2(sr.w, sr.h));
+
+                bool isHovered = ImGui::IsItemHovered();
+                bool isActive = ImGui::IsItemActive();
+
+                if (isHovered && !overDock && !overRDock && !overHeader) {
+                    drawList->AddRect(sr.min, sr.max, IM_COL32(70, 75, 95, 140), 0.0f, 0, 1.5f * g_dpiScale);
+                }
+
+                // Left click toggles Focus Mode (only if not dragging)
+                if (ImGui::IsItemDeactivated() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left, 6.0f) && !overDock && !overRDock && !overHeader) {
+                    if (isHovered && g_state.draggingSlot == -1) {
+                        g_state.focusedStreamIndex = slot; // Switch to focus!
+                    }
+                }
+
+                // Drag & drop initiation
+                if (isActive && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 8.0f) && !overDock && !overRDock && !overHeader) {
+                    g_state.draggingSlot = slot;
+                }
+
+                // Right-click context menu on stream
+                if (ImGui::BeginPopupContextItem(btnId.c_str(), ImGuiPopupFlags_MouseButtonRight)) {
+                    ImGui::Text("%s Options", stream.name.c_str());
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Mode Focus (Plein écran)")) {
+                        g_state.focusedStreamIndex = slot;
+                    }
+                    if (stream.peerPtr) {
+                        if (stream.peerPtr->isStreamHidden) {
+                            if (ImGui::MenuItem("Afficher le stream")) {
+                                stream.peerPtr->isStreamHidden = false;
+                            }
+                        } else {
+                            if (ImGui::MenuItem("Masquer le stream")) {
+                                stream.peerPtr->isStreamHidden = true;
+                            }
+                        }
+                        ImGui::Separator();
+                        ImGui::Text("Volume: %.0f%%", stream.peerPtr->volume * 100.0f);
+                        if (ImGui::SliderFloat("##stream_vol", &stream.peerPtr->volume, 0.0f, 1.5f, "%.0f%%")) {
+                            SavePeers(g_state);
+                        }
+                        ImGui::MenuItem("Mute Audio", nullptr, &stream.peerPtr->isMuted);
+                        ImGui::MenuItem("Deafen Audio", nullptr, &stream.peerPtr->isDeafened);
+                    }
+                    ImGui::EndPopup();
+                }
+
+                // Stream audio shortcut button (top-right of cell)
+                if (stream.peerPtr) {
+                    float svSize = 28.0f * g_dpiScale;
+                    float svX = sr.max.x - svSize - 12.0f * g_dpiScale;
+                    float svY = headerY;
+                    ImVec2 svMin(svX, svY);
+                    ImVec2 svMax(svX + svSize, svY + svSize);
+
+                    drawList->AddRectFilled(svMin, svMax, IM_COL32(16, 18, 24, 210), 6.0f * g_dpiScale);
+                    drawList->AddRect(svMin, svMax, IM_COL32(65, 70, 85, 160), 6.0f * g_dpiScale, 0, 1.0f);
+
+                    const char* svIcon = (stream.peerPtr->volume <= 0.01f || stream.peerPtr->isMuted) ? "MaterialSymbolsNoSound.svg" : "MaterialSymbolsVolumeDown.svg";
+                    IconManager::Get().DrawSvgIcon(drawList, svIcon, ImVec2(svX + svSize * 0.5f, svY + svSize * 0.5f), 16.0f * g_dpiScale, IM_COL32(230, 235, 245, 255));
+                }
+            }
+
+            // =====================================================================
+            // 2px Resizable Separators (Between columns & rows)
+            // =====================================================================
+            if (cols == 2) {
+                float sepX = windowWidth * g_state.gridSplitCol;
+                ImVec2 sepTop(sepX, 0.0f);
+                ImVec2 sepBot(sepX, windowHeight);
+                fgDrawList->AddLine(sepTop, sepBot, IM_COL32(45, 48, 62, 255), 2.0f * g_dpiScale);
+
+                ImVec2 hitMin(sepX - 5.0f * g_dpiScale, 0.0f);
+                ImVec2 hitMax(sepX + 5.0f * g_dpiScale, windowHeight);
+                bool isHoverSep = ImGui::IsMouseHoveringRect(hitMin, hitMax) && !overDock && !overHeader;
+
+                if (isHoverSep) {
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+                    fgDrawList->AddLine(sepTop, sepBot, IM_COL32(80, 140, 255, 255), 3.0f * g_dpiScale);
+                    if (io.MouseClicked[0]) {
+                        s_isDraggingSepCol = true;
+                    }
+                    if (io.MouseDoubleClicked[0]) {
+                        g_state.gridSplitCol = 0.5f; // Double-click resets to 50/50
+                    }
+                }
+                if (s_isDraggingSepCol) {
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+                    fgDrawList->AddLine(sepTop, sepBot, IM_COL32(110, 170, 255, 255), 3.0f * g_dpiScale);
+                    if (io.MouseDown[0]) {
+                        g_state.gridSplitCol = ImClamp(io.MousePos.x / windowWidth, 0.18f, 0.82f);
+                    } else {
+                        s_isDraggingSepCol = false;
+                    }
+                }
+            }
+
+            if (rows == 2) {
+                float sepY = windowHeight * g_state.gridSplitRow;
+                ImVec2 sepLeft(0.0f, sepY);
+                ImVec2 sepRight(windowWidth, sepY);
+                fgDrawList->AddLine(sepLeft, sepRight, IM_COL32(45, 48, 62, 255), 2.0f * g_dpiScale);
+
+                ImVec2 hitMinY(0.0f, sepY - 5.0f * g_dpiScale);
+                ImVec2 hitMaxY(windowWidth, sepY + 5.0f * g_dpiScale);
+                bool isHoverSepY = ImGui::IsMouseHoveringRect(hitMinY, hitMaxY) && !overDock && !overHeader;
+
+                if (isHoverSepY) {
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+                    fgDrawList->AddLine(sepLeft, sepRight, IM_COL32(80, 140, 255, 255), 3.0f * g_dpiScale);
+                    if (io.MouseClicked[0]) {
+                        s_isDraggingSepRow = true;
+                    }
+                    if (io.MouseDoubleClicked[0]) {
+                        g_state.gridSplitRow = 0.5f; // Double-click resets to 50/50
+                    }
+                }
+                if (s_isDraggingSepRow) {
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+                    fgDrawList->AddLine(sepLeft, sepRight, IM_COL32(110, 170, 255, 255), 3.0f * g_dpiScale);
+                    if (io.MouseDown[0]) {
+                        g_state.gridSplitRow = ImClamp(io.MousePos.y / windowHeight, 0.18f, 0.82f);
+                    } else {
+                        s_isDraggingSepRow = false;
+                    }
+                }
+            }
+
+            // =====================================================================
+            // Drag & Drop Reordering (VS Code Style)
+            // =====================================================================
+            if (g_state.draggingSlot >= 0 && g_state.draggingSlot < streamCount) {
+                int targetSlot = -1;
+                for (int s = 0; s < streamCount; ++s) {
+                    if (ImGui::IsMouseHoveringRect(slots[s].min, slots[s].max)) {
+                        targetSlot = s;
+                        break;
+                    }
+                }
+                g_state.dragTargetSlot = targetSlot;
+
+                // Blue target cell highlight
+                if (targetSlot >= 0 && targetSlot != g_state.draggingSlot) {
+                    fgDrawList->AddRectFilled(slots[targetSlot].min, slots[targetSlot].max, IM_COL32(80, 140, 255, 45));
+                    fgDrawList->AddRect(slots[targetSlot].min, slots[targetSlot].max, IM_COL32(80, 140, 255, 220), 4.0f * g_dpiScale, 0, 2.0f * g_dpiScale);
+                }
+
+                // Translucent floating card preview
+                ImVec2 m = io.MousePos;
+                float previewW = 150.0f * g_dpiScale;
+                float previewH = 84.0f * g_dpiScale;
+                ImVec2 pMin(m.x - previewW * 0.5f, m.y - previewH * 0.5f);
+                ImVec2 pMax(pMin.x + previewW, pMin.y + previewH);
+                fgDrawList->AddRectFilled(pMin, pMax, IM_COL32(20, 22, 30, 230), 8.0f * g_dpiScale);
+                fgDrawList->AddRect(pMin, pMax, IM_COL32(80, 140, 255, 220), 8.0f * g_dpiScale, 0, 1.5f * g_dpiScale);
+
+                int dStreamIdx = g_state.streamOrder[g_state.draggingSlot];
+                if (dStreamIdx >= streamCount) dStreamIdx = 0;
+                std::string dragLabel = streamList[dStreamIdx].name;
+                ImVec2 tSize = ImGui::CalcTextSize(dragLabel.c_str());
+                fgDrawList->AddText(ImVec2(pMin.x + (previewW - tSize.x) * 0.5f, pMin.y + (previewH - tSize.y) * 0.5f),
+                                    IM_COL32(240, 242, 255, 255), dragLabel.c_str());
+
+                // On mouse release: perform the slot swap
+                if (!io.MouseDown[0]) {
+                    if (targetSlot >= 0 && targetSlot != g_state.draggingSlot) {
+                        std::swap(g_state.streamOrder[g_state.draggingSlot], g_state.streamOrder[targetSlot]);
+                    }
+                    g_state.draggingSlot = -1;
+                    g_state.dragTargetSlot = -1;
                 }
             }
         }
@@ -1530,15 +1937,22 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     drawList->AddRect(dockMin, dockMax, IM_COL32(65, 68, 85, 200), 16.0f * g_dpiScale, 0, 1.2f);
 
     ImGui::SetCursorScreenPos(ImVec2(dockMin.x + dockPadX, dockMin.y + (dockHeight - btnH) * 0.5f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.0f * g_dpiScale);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 7.0f * g_dpiScale);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f * g_dpiScale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.247f, 0.259f, 0.282f, 0.90f)); // #3F4248
+
+    // Base dock button colors
+    ImVec4 dockBtnBg    = ImVec4(0.169f, 0.176f, 0.192f, 1.0f); // #2B2D31
+    ImVec4 dockBtnHover = ImVec4(0.220f, 0.227f, 0.251f, 1.0f); // #35373C
 
     // Control 1: [+] Screen / Window with Plus inside (MaterialSymbolsAddPhotoAlternate.svg per sketch #1)
     ImVec2 bPos1 = ImGui::GetCursorScreenPos();
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, dockBtnBg);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, dockBtnHover);
     if (ImGui::Button("##dock_screen_plus", ImVec2(btnW, btnH))) {}
     bool hovered1 = ImGui::IsItemHovered();
-    ImGui::PopStyleColor();
+    ImGui::PopStyleColor(2);
     ImU32 col1 = hovered1 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255);
     IconManager::Get().DrawSvgIcon(drawList, "MaterialSymbolsAddPhotoAlternate.svg", ImVec2(bPos1.x + btnW * 0.5f, bPos1.y + btnH * 0.5f), 24.0f * g_dpiScale, col1);
     if (hovered1) ImGui::SetTooltip("Add stream source or webcam window");
@@ -1546,12 +1960,13 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     // Control 2: Slanted Paintbrush / Annotation (BoxiconsBrushFilled.svg per sketch #2)
     ImGui::SameLine(0, btnSpacing);
     ImVec2 bPos2 = ImGui::GetCursorScreenPos();
-    ImGui::PushStyleColor(ImGuiCol_Button, g_state.isDrawMode ? ImVec4(0.36f, 0.14f, 0.18f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, g_state.isDrawMode ? ImVec4(0.361f, 0.141f, 0.180f, 1.0f) : dockBtnBg);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, g_state.isDrawMode ? ImVec4(0.431f, 0.157f, 0.212f, 1.0f) : dockBtnHover);
     if (ImGui::Button("##dock_paintbrush", ImVec2(btnW, btnH))) {
         g_state.isDrawMode = !g_state.isDrawMode;
     }
     bool hovered2 = ImGui::IsItemHovered();
-    ImGui::PopStyleColor();
+    ImGui::PopStyleColor(2);
     ImU32 col2 = g_state.isDrawMode ? IM_COL32(255, 120, 140, 255) : (hovered2 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
     IconManager::Get().DrawSvgIcon(drawList, "BoxiconsBrushFilled.svg", ImVec2(bPos2.x + btnW * 0.5f, bPos2.y + btnH * 0.5f), 24.0f * g_dpiScale, col2);
     if (hovered2) ImGui::SetTooltip("Toggle Collaborative Real-time Screen Annotation (Paintbrush)");
@@ -1559,12 +1974,13 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     // Control 3: Arrow cursor in rounded square "show cursor on the other screen" (TablerPointer2.svg per sketch #3)
     ImGui::SameLine(0, btnSpacing);
     ImVec2 bPos3 = ImGui::GetCursorScreenPos();
-    ImGui::PushStyleColor(ImGuiCol_Button, g_state.showCursorOnOtherScreen ? ImVec4(0.18f, 0.28f, 0.40f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, g_state.showCursorOnOtherScreen ? ImVec4(0.18f, 0.28f, 0.40f, 1.0f) : dockBtnBg);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, g_state.showCursorOnOtherScreen ? ImVec4(0.24f, 0.35f, 0.48f, 1.0f) : dockBtnHover);
     if (ImGui::Button("##dock_cursor_screen", ImVec2(btnW, btnH))) {
         g_state.showCursorOnOtherScreen = !g_state.showCursorOnOtherScreen;
     }
     bool hovered3 = ImGui::IsItemHovered();
-    ImGui::PopStyleColor();
+    ImGui::PopStyleColor(2);
     ImU32 col3 = g_state.showCursorOnOtherScreen ? IM_COL32(100, 180, 255, 255) : (hovered3 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
     IconManager::Get().DrawSvgIcon(drawList, "TablerPointer2.svg", ImVec2(bPos3.x + btnW * 0.5f, bPos3.y + btnH * 0.5f), 24.0f * g_dpiScale, col3);
     if (hovered3) ImGui::SetTooltip(g_state.showCursorOnOtherScreen ? "Hide cursor on the other screen" : "Show cursor on the other screen");
@@ -1572,12 +1988,13 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     // Control 4: Classic Microphone (MdiMicrophone.svg / MdiMicrophoneOff.svg per sketch #4)
     ImGui::SameLine(0, btnSpacing);
     ImVec2 bPos4 = ImGui::GetCursorScreenPos();
-    ImGui::PushStyleColor(ImGuiCol_Button, g_state.isMicMuted ? ImVec4(0.40f, 0.15f, 0.18f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, g_state.isMicMuted ? ImVec4(0.40f, 0.15f, 0.18f, 1.0f) : dockBtnBg);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, g_state.isMicMuted ? ImVec4(0.50f, 0.18f, 0.22f, 1.0f) : dockBtnHover);
     if (ImGui::Button("##dock_mic", ImVec2(btnW, btnH))) {
         g_state.isMicMuted = !g_state.isMicMuted;
     }
     bool hovered4 = ImGui::IsItemHovered();
-    ImGui::PopStyleColor();
+    ImGui::PopStyleColor(2);
     const char* micSvg = g_state.isMicMuted ? "MdiMicrophoneOff.svg" : "MdiMicrophone.svg";
     ImU32 col4 = g_state.isMicMuted ? IM_COL32(255, 80, 80, 255) : (hovered4 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
     IconManager::Get().DrawSvgIcon(drawList, micSvg, ImVec2(bPos4.x + btnW * 0.5f, bPos4.y + btnH * 0.5f), 24.0f * g_dpiScale, col4);
@@ -1586,12 +2003,13 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     // Control 5: Audio Headphones (IcBaselineHeadset.svg / IcBaselineHeadsetOff.svg per sketch #5)
     ImGui::SameLine(0, btnSpacing);
     ImVec2 bPos5 = ImGui::GetCursorScreenPos();
-    ImGui::PushStyleColor(ImGuiCol_Button, g_state.isAudioDeafened ? ImVec4(0.40f, 0.15f, 0.18f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, g_state.isAudioDeafened ? ImVec4(0.40f, 0.15f, 0.18f, 1.0f) : dockBtnBg);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, g_state.isAudioDeafened ? ImVec4(0.50f, 0.18f, 0.22f, 1.0f) : dockBtnHover);
     if (ImGui::Button("##dock_audio", ImVec2(btnW, btnH))) {
         g_state.isAudioDeafened = !g_state.isAudioDeafened;
     }
     bool hovered5 = ImGui::IsItemHovered();
-    ImGui::PopStyleColor();
+    ImGui::PopStyleColor(2);
     const char* audioSvg = g_state.isAudioDeafened ? "IcBaselineHeadsetOff.svg" : "IcBaselineHeadset.svg";
     ImU32 col5 = g_state.isAudioDeafened ? IM_COL32(255, 80, 80, 255) : (hovered5 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
     IconManager::Get().DrawSvgIcon(drawList, audioSvg, ImVec2(bPos5.x + btnW * 0.5f, bPos5.y + btnH * 0.5f), 24.0f * g_dpiScale, col5);
@@ -1619,14 +2037,10 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     IconManager::Get().DrawSvgIcon(drawList, "MaterialSymbolsPhoneCancelSharp.svg", ImVec2(bPos6.x + btnEndW * 0.5f, bPos6.y + btnH * 0.5f), 24.0f * g_dpiScale, col6);
     if (hovered6) ImGui::SetTooltip("Disconnect / Leave Session");
 
-    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(); // ImGuiCol_Border
+    ImGui::PopStyleVar(3);
 
     // 4. Floating Bottom-Right Controls: "all stream volume" (Speaker + Fullscreen per sketch!)
-    float rDockW = 96.0f * g_dpiScale;
-    float rDockH = 56.0f * g_dpiScale;
-    ImVec2 rDockMin = ImVec2(windowWidth - rDockW - 20.0f * g_dpiScale, windowHeight - rDockH - 24.0f * g_dpiScale);
-    ImVec2 rDockMax = ImVec2(rDockMin.x + rDockW, rDockMin.y + rDockH);
-
     drawList->AddRectFilled(rDockMin, rDockMax, IM_COL32(18, 19, 25, 220), 16.0f * g_dpiScale);
     drawList->AddRect(rDockMin, rDockMax, IM_COL32(65, 68, 85, 160), 16.0f * g_dpiScale, 0, 1.0f);
 
@@ -1765,7 +2179,7 @@ static void RenderSettingsView(float contentWidth, float contentHeight) {
         ImGui::Spacing();
 
         ImGui::Text("Simulated Video Stream Grid (Current Connection Tab):");
-        ImGui::SliderInt("##settings_sim_streams", &g_debug.simulatedStreamCount, 0, 4, "%d active feeds");
+        ImGui::SliderInt("##settings_sim_streams", &g_debug.simulatedStreamCount, 0, 8, "%d active feeds");
         if (ImGui::Button("View Streams in Current Connection")) {
             if (g_debug.simulatedStreamCount == 0) g_debug.simulatedStreamCount = 2;
             g_state.currentTab = AppTab::CurrentConnection;
@@ -1894,26 +2308,36 @@ void RenderDebugWindow() {
     // 1. Virtual Video Stream Grid Simulation
     if (ImGui::CollapsingHeader("📹 Simulated Video Streams / Visio Grid", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::Text("Simulate reception of 1 or more virtual video streams:");
-        ImGui::SliderInt("##dbg_stream_slider", &g_debug.simulatedStreamCount, 0, 4, "%d active streams");
+        ImGui::SliderInt("##dbg_stream_slider", &g_debug.simulatedStreamCount, 0, 8, "%d active streams");
         ImGui::Spacing();
 
-        if (ImGui::Button("0: Avatars Only", ImVec2(110.0f * g_dpiScale, 28.0f * g_dpiScale))) {
+        if (ImGui::Button("0: Avatars Only", ImVec2(105.0f * g_dpiScale, 28.0f * g_dpiScale))) {
             g_debug.simulatedStreamCount = 0;
             g_state.currentTab = AppTab::CurrentConnection;
         }
         ImGui::SameLine();
-        if (ImGui::Button("1 Stream", ImVec2(80.0f * g_dpiScale, 28.0f * g_dpiScale))) {
+        if (ImGui::Button("1 Stream", ImVec2(75.0f * g_dpiScale, 28.0f * g_dpiScale))) {
             g_debug.simulatedStreamCount = 1;
             g_state.currentTab = AppTab::CurrentConnection;
         }
         ImGui::SameLine();
-        if (ImGui::Button("2 Streams", ImVec2(80.0f * g_dpiScale, 28.0f * g_dpiScale))) {
+        if (ImGui::Button("2 Streams", ImVec2(75.0f * g_dpiScale, 28.0f * g_dpiScale))) {
             g_debug.simulatedStreamCount = 2;
             g_state.currentTab = AppTab::CurrentConnection;
         }
         ImGui::SameLine();
-        if (ImGui::Button("4 Streams Grid", ImVec2(110.0f * g_dpiScale, 28.0f * g_dpiScale))) {
+        if (ImGui::Button("4 Streams", ImVec2(75.0f * g_dpiScale, 28.0f * g_dpiScale))) {
             g_debug.simulatedStreamCount = 4;
+            g_state.currentTab = AppTab::CurrentConnection;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("6 Streams", ImVec2(75.0f * g_dpiScale, 28.0f * g_dpiScale))) {
+            g_debug.simulatedStreamCount = 6;
+            g_state.currentTab = AppTab::CurrentConnection;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("8 Streams", ImVec2(75.0f * g_dpiScale, 28.0f * g_dpiScale))) {
+            g_debug.simulatedStreamCount = 8;
             g_state.currentTab = AppTab::CurrentConnection;
         }
         ImGui::Spacing();
