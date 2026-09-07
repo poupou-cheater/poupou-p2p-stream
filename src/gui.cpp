@@ -379,6 +379,10 @@ void InitGui(HWND hWnd, Dx11Context& dx) {
             g_state.isAudioDeafened = true;
             for (auto& p : g_state.peers) p.isDeafened = true;
         }
+        if (wcsstr(cmd, L"--speak")) {
+            g_state.isMicSpeaking = true;
+            for (auto& p : g_state.peers) p.isSpeaking = true;
+        }
         if (wcsstr(cmd, L"--hide-debug")) {
             g_debug.showDebugWindow = false;
         }
@@ -480,9 +484,7 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImVec2 headerStart = ImGui::GetCursorScreenPos();
     float headerHeight = 70.0f * g_dpiScale;
 
-    // Requirement 4: Topbar enlargement (height 70px, avatars 20px radius, larger nav pills & window buttons)
-    float avatarRadius = 20.0f * g_dpiScale;
-    float avatarMeRadius = 21.0f * g_dpiScale;
+    // Requirement 4: Topbar enlargement (height 70px, unified 18px radius avatars, larger nav pills & window buttons)
     // Top-left: Display ONLY active peers (Waiting [Yellow] or Online [Green]).
     // "me" and disconnected/offline peers are NOT shown in activeTopPeers per user specification.
     std::vector<Peer*> activeTopPeers;
@@ -495,12 +497,12 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     // Requirement 1: Load default profile picture for avatar fallback
     ID3D11ShaderResourceView* defaultAvatarTex = IconManager::Get().GetImageTexture("ext/img/default profile picture.png");
 
-    float topAvatarRadius = 17.0f * g_dpiScale;
+    float topAvatarRadius = 18.0f * g_dpiScale;
     float topAvatarSpacing = 10.0f * g_dpiScale;
     float topAvatarY = (headerHeight - (topAvatarRadius * 2.0f)) * 0.5f;
 
-    // Requirement 2: Strict order from left to right:
-    // 1. Extreme left (x = 20px): Avatars of OTHER participants/peers
+    // Requirement 4: Strict horizontal left-to-right alignment in the topbar:
+    // * Position avatars of other active peers starting from x = 20px
     float curX = 20.0f * g_dpiScale;
 
     for (size_t i = 0; i < activeTopPeers.size(); ++i) {
@@ -563,13 +565,8 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
         curX += topAvatarRadius * 2.0f + topAvatarSpacing;
     }
 
-    if (!activeTopPeers.empty()) {
-        curX += 4.0f * g_dpiScale;
-    }
-
-    // 2. To the right of peers: Place avatar "me" (local host)
+    // * Place avatar "me" immediately following the other avatars
     float meRadius = 18.0f * g_dpiScale;
-    float meSpacing = 14.0f * g_dpiScale;
     float meY = (headerHeight - (meRadius * 2.0f)) * 0.5f;
     float meX = curX;
     ImVec2 meCenter(meX + meRadius, meY + meRadius);
@@ -578,7 +575,7 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::InvisibleButton("##top_me_avatar", ImVec2(meRadius * 2.0f, meRadius * 2.0f));
     bool meHovered = ImGui::IsItemHovered();
 
-    // Requirement 1: Draw avatar using default profile picture as circular disc
+    // Draw avatar using default profile picture as circular disc
     DrawCircularAvatar(drawList, defaultAvatarTex, meCenter, meRadius, "Me");
 
     // Speech glowing green ring ONLY when speaking
@@ -606,9 +603,12 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
         ImGui::EndPopup();
     }
 
-    curX += meRadius * 2.0f + meSpacing;
+    curX += meRadius * 2.0f;
 
-    // 3. Just to the right of avatar "me": Place [ home ] followed by [ current connection ] and [ setting ]
+    // Requirement 1: Exact centering of "current connection" in the middle of the window:
+    // - Calculate window horizontal middle: float centerX = windowWidth * 0.5f;
+    // - Place central button "current connection" so its EXACT CENTER is at centerX.
+    // - Position "home" to its left and "setting" to its right with their respective spacing.
     float navBtnHeight = 40.0f * g_dpiScale;
     float paddingX = 22.0f * g_dpiScale;
     float spacing = 10.0f * g_dpiScale;
@@ -616,9 +616,21 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     float wConn = ImGui::CalcTextSize("current connection").x + paddingX * 2.0f;
     float wSet  = ImGui::CalcTextSize("setting").x + paddingX * 2.0f;
 
-    float navStartX = curX;
+    float centerX = windowWidth * 0.5f;
+    float xConn = centerX - (wConn * 0.5f);
+    float xHome = xConn - spacing - wHome;
+    float xSet  = xConn + wConn + spacing;
+
+    // Requirement 4: Maintain a clear gap between the last avatar ("me") and [ home ]
+    float minGap = 20.0f * g_dpiScale;
+    if (xHome < curX + minGap) {
+        float shift = (curX + minGap) - xHome;
+        xHome += shift;
+        xConn += shift;
+        xSet  += shift;
+    }
+
     float navY = (headerHeight - navBtnHeight) * 0.5f;
-    ImGui::SetCursorPos(ImVec2(navStartX, navY));
 
     // Active pill color: #5c242e (exact wine/maroon tone from user's sketch)
     ImVec4 activeTabColor = ImVec4(0.361f, 0.141f, 0.180f, 1.00f); // #5c242e
@@ -630,6 +642,7 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(paddingX, 9.0f * g_dpiScale));
 
     // [ home ] tab button
+    ImGui::SetCursorPos(ImVec2(xHome, navY));
     bool isHome = (g_state.currentTab == AppTab::Home);
     ImGui::PushStyleColor(ImGuiCol_Button, isHome ? activeTabColor : inactiveTabColor);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, isHome ? activeTabHover : inactiveTabHover);
@@ -641,7 +654,7 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PopStyleColor(3);
 
     // [ current connection ] tab button
-    ImGui::SameLine(0, spacing);
+    ImGui::SetCursorPos(ImVec2(xConn, navY));
     bool isConn = (g_state.currentTab == AppTab::CurrentConnection);
     ImGui::PushStyleColor(ImGuiCol_Button, isConn ? activeTabColor : inactiveTabColor);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, isConn ? activeTabHover : inactiveTabHover);
@@ -653,7 +666,7 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PopStyleColor(3);
 
     // [ setting ] tab button
-    ImGui::SameLine(0, spacing);
+    ImGui::SetCursorPos(ImVec2(xSet, navY));
     bool isSet = (g_state.currentTab == AppTab::Setting);
     ImGui::PushStyleColor(ImGuiCol_Button, isSet ? activeTabColor : inactiveTabColor);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, isSet ? activeTabHover : inactiveTabHover);
@@ -665,33 +678,62 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PopStyleColor(3);
     ImGui::PopStyleVar(2);
 
-    // Right: Frameless Window Controls (─, □, ✕) enlarged to 34px
+    // Requirement 5: System controls (Debug, Minimize, Maximize, Close) with dark capsule background
     float btnSize = 34.0f * g_dpiScale;
-    float controlsWidth = (btnSize * 3.0f + 14.0f * g_dpiScale);
-    float controlsY = (headerHeight - btnSize) * 0.5f;
+    float btnGap = 4.0f * g_dpiScale;
+    float sysControlsW = btnSize * 3.0f + btnGap * 2.0f;
 
 #if defined(_DEBUG) || !defined(NDEBUG)
-    // Debug toggle button in topbar
     float dbgBtnW = 86.0f * g_dpiScale;
     float dbgBtnH = 30.0f * g_dpiScale;
-    ImGui::SetCursorPos(ImVec2(windowWidth - controlsWidth - dbgBtnW - 22.0f * g_dpiScale, (headerHeight - dbgBtnH) * 0.5f));
+    float dbgGap = 8.0f * g_dpiScale;
+    float totalRightW = dbgBtnW + dbgGap + sysControlsW;
+#else
+    float totalRightW = sysControlsW;
+#endif
+
+    float capPadX = 6.0f * g_dpiScale;
+    float capPadY = 4.0f * g_dpiScale;
+    float capH = btnSize + capPadY * 2.0f;
+    float capW = totalRightW + capPadX * 2.0f;
+    float rightMargin = 14.0f * g_dpiScale;
+
+    float capX = windowWidth - rightMargin - capW;
+    float capY = (headerHeight - capH) * 0.5f;
+
+    ImVec2 rectMin(headerStart.x + capX, headerStart.y + capY);
+    ImVec2 rectMax(rectMin.x + capW, rectMin.y + capH);
+
+    // Dark translucent capsule pill background to guarantee crisp contrast over video stream
+    drawList->AddRectFilled(rectMin, rectMax, IM_COL32(24, 25, 28, 220), 12.0f * g_dpiScale);
+    drawList->AddRect(rectMin, rectMax, IM_COL32(55, 58, 70, 160), 12.0f * g_dpiScale, 0, 1.0f);
+
+    float curRightX = capX + capPadX;
+
+#if defined(_DEBUG) || !defined(NDEBUG)
+    // Debug toggle button
+    float dbgY = (headerHeight - dbgBtnH) * 0.5f;
+    ImGui::SetCursorPos(ImVec2(curRightX, dbgY));
     ImGui::PushStyleColor(ImGuiCol_Button, g_debug.showDebugWindow ? ImVec4(0.48f, 0.20f, 0.25f, 1.0f) : ImVec4(0.14f, 0.15f, 0.20f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.58f, 0.24f, 0.32f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.38f, 0.40f, 0.55f, 0.8f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f * g_dpiScale);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f * g_dpiScale);
     if (ImGui::Button("🛠 Debug", ImVec2(dbgBtnW, dbgBtnH))) {
         g_debug.showDebugWindow = !g_debug.showDebugWindow;
     }
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(3);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle Debug & Simulation Tools (F12)");
+
+    curRightX += dbgBtnW + dbgGap;
 #endif
 
-    ImGui::SetCursorPos(ImVec2(windowWidth - controlsWidth - 14.0f * g_dpiScale, controlsY));
+    float sysY = (headerHeight - btnSize) * 0.5f;
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 7.0f * g_dpiScale);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f * g_dpiScale, 6.0f * g_dpiScale));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
 
     // Minimize (─)
+    ImGui::SetCursorPos(ImVec2(curRightX, sysY));
     ImVec2 minBtnPos = ImGui::GetCursorScreenPos();
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.2f, 0.22f, 0.28f, 1.0f));
@@ -703,9 +745,10 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     drawList->AddLine(ImVec2(minBtnPos.x + 9.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
                       ImVec2(minBtnPos.x + btnSize - 9.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
                       IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
+    curRightX += btnSize + btnGap;
 
     // Maximize / Restore (□)
-    ImGui::SameLine(0, 5.0f * g_dpiScale);
+    ImGui::SetCursorPos(ImVec2(curRightX, sysY));
     ImVec2 maxBtnPos = ImGui::GetCursorScreenPos();
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.2f, 0.22f, 0.28f, 1.0f));
@@ -722,9 +765,10 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     drawList->AddRect(ImVec2(maxBtnPos.x + boxPad, maxBtnPos.y + boxPad),
                       ImVec2(maxBtnPos.x + btnSize - boxPad, maxBtnPos.y + btnSize - boxPad),
                       IM_COL32(220, 220, 230, 255), 1.0f, 0, 1.5f * g_dpiScale);
+    curRightX += btnSize + btnGap;
 
     // Close (✕)
-    ImGui::SameLine(0, 5.0f * g_dpiScale);
+    ImGui::SetCursorPos(ImVec2(curRightX, sysY));
     ImVec2 closeBtnPos = ImGui::GetCursorScreenPos();
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.15f, 0.18f, 1.0f));
@@ -1218,13 +1262,8 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
             // 1. Container background (0 margins, 0 paddings, 100% full screen)
             drawList->AddRectFilled(bMin, bMax, IM_COL32(12, 14, 18, 255));
 
-            // Streamer Metadata
-            std::string streamerName = (s < (int)participants.size()) ? participants[s].name : ("Peer " + std::to_string(s));
             Peer* pPeer = (s < (int)participants.size()) ? participants[s].peerPtr : nullptr;
             bool isMe = (s < (int)participants.size()) ? participants[s].isMe : false;
-            bool isMuted = isMe ? g_state.isMicMuted : (pPeer ? pPeer->isMuted : false);
-            bool isDeafened = isMe ? g_state.isAudioDeafened : (pPeer ? pPeer->isDeafened : false);
-            bool isStreamerSpeaking = isMe ? g_state.isMicSpeaking : (pPeer ? pPeer->isSpeaking : false);
 
             // 2. Render Helldivers 2 video stream edge-to-edge
             if (streamTex) {
@@ -1236,77 +1275,6 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
             // 3. Subtle vertical separator line between contiguous streams
             if (s < streamCount - 1) {
                 drawList->AddLine(ImVec2(endX, 0.0f), ImVec2(endX, cellH), IM_COL32(45, 48, 62, 220), 2.0f * g_dpiScale);
-            }
-
-            // 4. Streamer Speaking Border Highlight
-            if (isStreamerSpeaking) {
-                drawList->AddRect(bMin, bMax, IM_COL32(72, 224, 110, 255), 0.0f, 0, 3.0f * g_dpiScale);
-            }
-
-            // =========================================================================
-            // Requirement 4: Top-Left Streamer Status Overlay (Name + Mute + Deafen)
-            // =========================================================================
-            float badgeX = bMin.x + 20.0f * g_dpiScale;
-            float badgeY = 82.0f * g_dpiScale; // Safely below topbar
-            float iconSize = 16.0f * g_dpiScale;
-            float badgeH = 32.0f * g_dpiScale;
-            float padX = 12.0f * g_dpiScale;
-            float spacingX = 8.0f * g_dpiScale;
-
-            ImVec2 tSize = ImGui::CalcTextSize(streamerName.c_str());
-            float innerW = tSize.x;
-            if (isMuted) innerW += spacingX + iconSize;
-            if (isDeafened) innerW += spacingX + iconSize;
-
-            float badgeW = innerW + padX * 2.0f;
-            ImVec2 pMin(badgeX, badgeY);
-            ImVec2 pMax(badgeX + badgeW, badgeY + badgeH);
-
-            // Sleek dark pill background
-            drawList->AddRectFilled(pMin, pMax, IM_COL32(14, 16, 22, 230), 8.0f * g_dpiScale);
-            if (isStreamerSpeaking) {
-                drawList->AddRect(pMin, pMax, IM_COL32(72, 224, 110, 255), 8.0f * g_dpiScale, 0, 1.8f * g_dpiScale);
-            } else {
-                drawList->AddRect(pMin, pMax, IM_COL32(65, 70, 85, 170), 8.0f * g_dpiScale, 0, 1.0f);
-            }
-
-            // Streamer Name
-            float curItemX = pMin.x + padX;
-            float textY = pMin.y + (badgeH - tSize.y) * 0.5f;
-            drawList->AddText(ImVec2(curItemX, textY), IM_COL32(240, 242, 248, 255), streamerName.c_str());
-            curItemX += tSize.x;
-
-            // Status Icon: Microphone Muted (MdiMicrophoneOff.svg)
-            if (isMuted) {
-                curItemX += spacingX;
-                ImVec2 iconC(curItemX + iconSize * 0.5f, pMin.y + badgeH * 0.5f);
-                IconManager::Get().DrawSvgIcon(drawList, "MdiMicrophoneOff.svg", iconC, iconSize, IM_COL32(255, 75, 75, 255));
-                curItemX += iconSize;
-            }
-
-            // Status Icon: Audio Deafened / Headset Off (IcBaselineHeadsetOff.svg)
-            if (isDeafened) {
-                curItemX += spacingX;
-                ImVec2 iconC(curItemX + iconSize * 0.5f, pMin.y + badgeH * 0.5f);
-                IconManager::Get().DrawSvgIcon(drawList, "IcBaselineHeadsetOff.svg", iconC, iconSize, IM_COL32(255, 75, 75, 255));
-                curItemX += iconSize;
-            }
-
-            // Interactive Tooltip & Context Menu on badge
-            ImGui::SetCursorScreenPos(pMin);
-            std::string badgeBtnId = "##str_badge_" + std::to_string(s);
-            ImGui::InvisibleButton(badgeBtnId.c_str(), ImVec2(badgeW, badgeH));
-            if (ImGui::IsItemHovered()) {
-                ImGui::BeginTooltip();
-                ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.98f, 1.0f), "Streamer: %s", streamerName.c_str());
-                ImGui::Separator();
-                if (isStreamerSpeaking) ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), "Voice: Speaking");
-                else ImGui::TextDisabled("Voice: Silent");
-                if (isMuted) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Microphone: Muted");
-                else ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), "Microphone: Active");
-                if (isDeafened) ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Audio: Deafened");
-                else ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), "Audio: Active");
-                ImGui::EndTooltip();
             }
 
             // =========================================================================
