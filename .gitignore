@@ -1,0 +1,37 @@
+# Visual Studio files and caches
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+*.VC.db
+*.VC.opendb
+*.ipch
+ipch/
+
+# Build Outputs & Intermediate Files
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.tlog
+*.vsidx
+*.log
+*.lastbuildstate
+*.recipe
+*.iobj
+*.ipdb
+*.exe
+
+# Local runtime data and configuration
+imgui.ini
+poupou_peers.ini
+peers.json
+portable.txt
+*.tmp
