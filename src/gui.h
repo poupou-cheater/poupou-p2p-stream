@@ -17,6 +17,11 @@ struct Peer {
     PeerStatus status = PeerStatus::Offline;
     bool isFavorite = false;
     int latencyMs = 0;
+    float volume = 1.0f;
+    bool isMuted = false;
+    bool isDeafened = false;
+    bool isSpeaking = false;
+    float pokeTimer = 0.0f; // Visual feedback timer when poked
 };
 
 enum class AppTab {
@@ -48,6 +53,8 @@ struct GuiState {
     bool isMicMuted = false;
     bool isAudioDeafened = false;
     bool isDrawMode = false;
+    bool showCursorOnOtherScreen = true;
+    bool isFullscreen = false;
     float streamVolume = 0.85f;
     bool rnnoiseNoiseSuppression = true;
 

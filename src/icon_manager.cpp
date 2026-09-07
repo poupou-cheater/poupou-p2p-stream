@@ -148,33 +148,55 @@ void IconManager::DrawStatusIndicator(ImDrawList* drawList, ImVec2 center, float
     }
 }
 
-void IconManager::DrawIconAdd(ImDrawList* drawList, ImVec2 center, float size, ImU32 color) {
-    float half = size * 0.45f;
-    float thick = 2.2f * g_dpiScale;
-    drawList->AddLine(ImVec2(center.x - half, center.y), ImVec2(center.x + half, center.y), color, thick);
-    drawList->AddLine(ImVec2(center.x, center.y - half), ImVec2(center.x, center.y + half), color, thick);
+void IconManager::DrawIconScreenPlus(ImDrawList* drawList, ImVec2 center, float size, ImU32 color) {
+    float sw = size * 0.84f;
+    float sh = size * 0.62f;
+    ImVec2 smin(center.x - sw * 0.5f, center.y - sh * 0.5f);
+    ImVec2 smax(center.x + sw * 0.5f, center.y + sh * 0.5f);
+    drawList->AddRect(smin, smax, color, 3.0f * g_dpiScale, 0, 1.8f * g_dpiScale);
+
+    // Plus sign inside screen
+    float pLen = size * 0.32f;
+    drawList->AddLine(ImVec2(center.x - pLen * 0.5f, center.y), ImVec2(center.x + pLen * 0.5f, center.y), color, 2.0f * g_dpiScale);
+    drawList->AddLine(ImVec2(center.x, center.y - pLen * 0.5f), ImVec2(center.x, center.y + pLen * 0.5f), color, 2.0f * g_dpiScale);
 }
 
-void IconManager::DrawIconDraw(ImDrawList* drawList, ImVec2 center, float size, ImU32 color) {
-    float s = size * 0.42f;
-    ImVec2 tip(center.x - s * 0.8f, center.y + s * 0.8f);
-    ImVec2 back(center.x + s * 0.7f, center.y - s * 0.7f);
-    drawList->AddLine(tip, back, color, 2.4f * g_dpiScale);
-    drawList->AddTriangleFilled(tip, 
-                                ImVec2(tip.x + 3.5f * g_dpiScale, tip.y), 
-                                ImVec2(tip.x, tip.y - 3.5f * g_dpiScale), color);
+void IconManager::DrawIconPaintbrush(ImDrawList* drawList, ImVec2 center, float size, ImU32 color) {
+    float s = size * 0.44f;
+    // Slanted handle extending up-right at 45 degrees
+    ImVec2 handleStart(center.x + s * 0.15f, center.y - s * 0.15f);
+    ImVec2 handleEnd(center.x + s * 0.90f, center.y - s * 0.90f);
+    drawList->AddLine(handleStart, handleEnd, color, 3.0f * g_dpiScale);
+
+    // Ferrule (metal collar band)
+    ImVec2 f1(center.x + s * 0.28f, center.y - s * 0.04f);
+    ImVec2 f2(center.x + s * 0.04f, center.y - s * 0.28f);
+    drawList->AddLine(f1, f2, color, 2.0f * g_dpiScale);
+
+    // Bristles pointing down-left
+    ImVec2 tip(center.x - s * 0.88f, center.y + s * 0.88f);
+    ImVec2 b1(center.x - s * 0.15f, center.y + s * 0.45f);
+    ImVec2 b2(center.x - s * 0.45f, center.y + s * 0.15f);
+    drawList->AddTriangleFilled(tip, b1, b2, color);
 }
 
-void IconManager::DrawIconShare(ImDrawList* drawList, ImVec2 center, float size, ImU32 color) {
-    float sw = size * 0.75f;
-    float sh = size * 0.52f;
-    ImVec2 smin(center.x - sw * 0.5f, center.y - sh * 0.65f);
-    ImVec2 smax(center.x + sw * 0.5f, center.y + sh * 0.35f);
-    drawList->AddRect(smin, smax, color, 2.0f * g_dpiScale, 0, 1.8f * g_dpiScale);
-    // Screen stand
-    drawList->AddLine(ImVec2(center.x, smax.y), ImVec2(center.x, smax.y + 4.0f * g_dpiScale), color, 1.8f * g_dpiScale);
-    drawList->AddLine(ImVec2(center.x - 5.0f * g_dpiScale, smax.y + 4.0f * g_dpiScale),
-                      ImVec2(center.x + 5.0f * g_dpiScale, smax.y + 4.0f * g_dpiScale), color, 1.8f * g_dpiScale);
+void IconManager::DrawIconCursorScreen(ImDrawList* drawList, ImVec2 center, float size, ImU32 color) {
+    float sq = size * 0.82f;
+    ImVec2 sqMin(center.x - sq * 0.5f, center.y - sq * 0.5f);
+    ImVec2 sqMax(center.x + sq * 0.5f, center.y + sq * 0.5f);
+    drawList->AddRect(sqMin, sqMax, color, 4.5f * g_dpiScale, 0, 1.8f * g_dpiScale);
+
+    // Arrow pointer / cursor pointing up-left inside the rounded square
+    float a = size * 0.38f;
+    ImVec2 tip(center.x - a * 0.45f, center.y - a * 0.45f);
+    ImVec2 rPt(tip.x + a * 0.90f, tip.y + a * 0.35f);
+    ImVec2 mPt(tip.x + a * 0.45f, tip.y + a * 0.45f);
+    ImVec2 bPt(tip.x + a * 0.35f, tip.y + a * 0.90f);
+    ImVec2 tail(tip.x + a * 0.85f, tip.y + a * 0.85f);
+
+    drawList->AddTriangleFilled(tip, rPt, mPt, color);
+    drawList->AddTriangleFilled(tip, mPt, bPt, color);
+    drawList->AddLine(mPt, tail, color, 2.0f * g_dpiScale);
 }
 
 void IconManager::DrawIconMic(ImDrawList* drawList, ImVec2 center, float size, bool muted, ImU32 color) {
@@ -183,12 +205,17 @@ void IconManager::DrawIconMic(ImDrawList* drawList, ImVec2 center, float size, b
     ImVec2 capMin(center.x - mw * 0.5f, center.y - mh * 0.65f);
     ImVec2 capMax(center.x + mw * 0.5f, center.y + mh * 0.15f);
     drawList->AddRectFilled(capMin, capMax, color, mw * 0.5f);
+
     // Arc cradle
     drawList->PathArcTo(ImVec2(center.x, center.y - 1.0f * g_dpiScale), mw * 0.9f, 0.0f, 3.14159f, 16);
     drawList->PathStroke(color, 0, 1.8f * g_dpiScale);
-    // Stem
+
+    // Stem and base
     drawList->AddLine(ImVec2(center.x, center.y + mw * 0.9f - 1.0f * g_dpiScale),
-                      ImVec2(center.x, center.y + mh * 0.65f), color, 1.8f * g_dpiScale);
+                      ImVec2(center.x, center.y + mh * 0.60f), color, 1.8f * g_dpiScale);
+    drawList->AddLine(ImVec2(center.x - 4.5f * g_dpiScale, center.y + mh * 0.60f),
+                      ImVec2(center.x + 4.5f * g_dpiScale, center.y + mh * 0.60f), color, 1.8f * g_dpiScale);
+
     if (muted) {
         drawList->AddLine(ImVec2(center.x - size * 0.45f, center.y - size * 0.45f),
                           ImVec2(center.x + size * 0.45f, center.y + size * 0.45f),
@@ -197,17 +224,19 @@ void IconManager::DrawIconMic(ImDrawList* drawList, ImVec2 center, float size, b
 }
 
 void IconManager::DrawIconAudio(ImDrawList* drawList, ImVec2 center, float size, bool deafened, ImU32 color) {
-    float hw = size * 0.65f;
+    float hw = size * 0.68f;
     // Headband arc
     drawList->PathArcTo(ImVec2(center.x, center.y - 1.0f * g_dpiScale), hw * 0.5f, 3.14159f, 6.28318f, 16);
     drawList->PathStroke(color, 0, 1.8f * g_dpiScale);
+
     // Earcups
     float ew = 3.5f * g_dpiScale;
-    float eh = 7.0f * g_dpiScale;
+    float eh = 7.5f * g_dpiScale;
     drawList->AddRectFilled(ImVec2(center.x - hw * 0.5f - ew * 0.5f, center.y - 1.0f * g_dpiScale),
                             ImVec2(center.x - hw * 0.5f + ew * 0.5f, center.y + eh), color, 2.0f * g_dpiScale);
     drawList->AddRectFilled(ImVec2(center.x + hw * 0.5f - ew * 0.5f, center.y - 1.0f * g_dpiScale),
                             ImVec2(center.x + hw * 0.5f + ew * 0.5f, center.y + eh), color, 2.0f * g_dpiScale);
+
     if (deafened) {
         drawList->AddLine(ImVec2(center.x - size * 0.45f, center.y - size * 0.45f),
                           ImVec2(center.x + size * 0.45f, center.y + size * 0.45f),
@@ -215,11 +244,61 @@ void IconManager::DrawIconAudio(ImDrawList* drawList, ImVec2 center, float size,
     }
 }
 
-void IconManager::DrawIconEnd(ImDrawList* drawList, ImVec2 center, float size, ImU32 color) {
-    float ew = size * 0.65f;
-    ImVec2 pCenter(center.x, center.y + size * 0.22f);
-    drawList->PathArcTo(pCenter, ew * 0.5f, 3.65f, 5.77f, 16);
-    drawList->PathStroke(color, 0, 2.4f * g_dpiScale);
-    drawList->AddCircleFilled(ImVec2(center.x - ew * 0.42f, center.y + size * 0.12f), 2.4f * g_dpiScale, color);
-    drawList->AddCircleFilled(ImVec2(center.x + ew * 0.42f, center.y + size * 0.12f), 2.4f * g_dpiScale, color);
+void IconManager::DrawIconPhoneHangup(ImDrawList* drawList, ImVec2 center, float size, ImU32 color) {
+    float ew = size * 0.64f;
+    // Handset arc curving downwards
+    ImVec2 pCenter(center.x - size * 0.08f, center.y + size * 0.20f);
+    drawList->PathArcTo(pCenter, ew * 0.48f, 3.65f, 5.77f, 16);
+    drawList->PathStroke(color, 0, 2.6f * g_dpiScale);
+    drawList->AddCircleFilled(ImVec2(pCenter.x - ew * 0.40f, pCenter.y - size * 0.08f), 2.6f * g_dpiScale, color);
+    drawList->AddCircleFilled(ImVec2(pCenter.x + ew * 0.40f, pCenter.y - size * 0.08f), 2.6f * g_dpiScale, color);
+
+    // Small 'x' cross next to the phone on the top right (per sketch!)
+    float xCenterX = center.x + size * 0.32f;
+    float xCenterY = center.y - size * 0.22f;
+    float xHalf = 3.5f * g_dpiScale;
+    drawList->AddLine(ImVec2(xCenterX - xHalf, xCenterY - xHalf), ImVec2(xCenterX + xHalf, xCenterY + xHalf), color, 1.8f * g_dpiScale);
+    drawList->AddLine(ImVec2(xCenterX + xHalf, xCenterY - xHalf), ImVec2(xCenterX - xHalf, xCenterY + xHalf), color, 1.8f * g_dpiScale);
+}
+
+void IconManager::DrawIconVolume(ImDrawList* drawList, ImVec2 center, float size, ImU32 color) {
+    float s = size * 0.50f;
+    // Speaker cone
+    ImVec2 p0(center.x - s * 0.7f, center.y - s * 0.35f);
+    ImVec2 p1(center.x - s * 0.3f, center.y - s * 0.35f);
+    ImVec2 p2(center.x + s * 0.2f, center.y - s * 0.75f);
+    ImVec2 p3(center.x + s * 0.2f, center.y + s * 0.75f);
+    ImVec2 p4(center.x - s * 0.3f, center.y + s * 0.35f);
+    ImVec2 p5(center.x - s * 0.7f, center.y + s * 0.35f);
+
+    ImVec2 conePts[6] = { p0, p1, p2, p3, p4, p5 };
+    drawList->AddConvexPolyFilled(conePts, 6, color);
+
+    // Sound waves
+    drawList->PathArcTo(ImVec2(center.x + s * 0.25f, center.y), s * 0.45f, -0.7f, 0.7f, 8);
+    drawList->PathStroke(color, 0, 1.6f * g_dpiScale);
+    drawList->PathArcTo(ImVec2(center.x + s * 0.25f, center.y), s * 0.85f, -0.7f, 0.7f, 8);
+    drawList->PathStroke(color, 0, 1.6f * g_dpiScale);
+}
+
+void IconManager::DrawIconFullscreen(ImDrawList* drawList, ImVec2 center, float size, ImU32 color) {
+    float s = size * 0.40f;
+    float len = s * 0.55f;
+    float thick = 1.8f * g_dpiScale;
+
+    // Top-left
+    drawList->AddLine(ImVec2(center.x - s, center.y - s), ImVec2(center.x - s + len, center.y - s), color, thick);
+    drawList->AddLine(ImVec2(center.x - s, center.y - s), ImVec2(center.x - s, center.y - s + len), color, thick);
+
+    // Top-right
+    drawList->AddLine(ImVec2(center.x + s, center.y - s), ImVec2(center.x + s - len, center.y - s), color, thick);
+    drawList->AddLine(ImVec2(center.x + s, center.y - s), ImVec2(center.x + s, center.y - s + len), color, thick);
+
+    // Bottom-left
+    drawList->AddLine(ImVec2(center.x - s, center.y + s), ImVec2(center.x - s + len, center.y + s), color, thick);
+    drawList->AddLine(ImVec2(center.x - s, center.y + s), ImVec2(center.x - s, center.y + s - len), color, thick);
+
+    // Bottom-right
+    drawList->AddLine(ImVec2(center.x + s, center.y + s), ImVec2(center.x + s - len, center.y + s), color, thick);
+    drawList->AddLine(ImVec2(center.x + s, center.y + s), ImVec2(center.x + s, center.y + s - len), color, thick);
 }
