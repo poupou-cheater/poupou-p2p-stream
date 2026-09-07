@@ -140,3 +140,112 @@ void Dx11Context::EndFrame() {
         pSwapChain->Present(vsync ? 1 : 0, 0);
     }
 }
+
+#include <wincodec.h>
+#include <vector>
+#pragma comment(lib, "windowscodecs.lib")
+
+bool Dx11Context::SaveScreenshot(const std::wstring& filePath) {
+    if (!pSwapChain || !pd3dDevice || !pd3dDeviceContext) return false;
+
+    ID3D11Texture2D* pBackBuffer = nullptr;
+    if (FAILED(pSwapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer)))) return false;
+
+    D3D11_TEXTURE2D_DESC desc;
+    pBackBuffer->GetDesc(&desc);
+
+    desc.BindFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.MiscFlags = 0;
+
+    ID3D11Texture2D* pStaging = nullptr;
+    if (FAILED(pd3dDevice->CreateTexture2D(&desc, nullptr, &pStaging))) {
+        pBackBuffer->Release();
+        return false;
+    }
+
+    // Unbind render targets from Output Merger and flush queued draw calls before reading
+    ID3D11RenderTargetView* nullRTV = nullptr;
+    pd3dDeviceContext->OMSetRenderTargets(1, &nullRTV, nullptr);
+    pd3dDeviceContext->Flush();
+
+    pd3dDeviceContext->CopyResource(pStaging, pBackBuffer);
+    pBackBuffer->Release();
+
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    if (FAILED(pd3dDeviceContext->Map(pStaging, 0, D3D11_MAP_READ, 0, &mapped))) {
+        pStaging->Release();
+        return false;
+    }
+
+    int nonZeroCount = 0;
+    const BYTE* testPtr = (const BYTE*)mapped.pData;
+    for (UINT y = 0; y < desc.Height; ++y) {
+        const BYTE* row = testPtr + y * mapped.RowPitch;
+        for (UINT x = 0; x < desc.Width * 4; ++x) {
+            if (row[x] != 0) nonZeroCount++;
+        }
+    }
+    FILE* dbgF = nullptr;
+    fopen_s(&dbgF, "screenshot_debug.txt", "w");
+    if (dbgF) {
+        fprintf(dbgF, "SaveScreenshot: %ux%u pitch=%u nonZeroBytes=%d\n", desc.Width, desc.Height, mapped.RowPitch, nonZeroCount);
+        fclose(dbgF);
+    }
+
+    IWICImagingFactory* pFactory = nullptr;
+    CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pFactory));
+    if (!pFactory) {
+        pd3dDeviceContext->Unmap(pStaging, 0);
+        pStaging->Release();
+        return false;
+    }
+
+    IWICBitmapEncoder* pEncoder = nullptr;
+    pFactory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &pEncoder);
+    IWICStream* pStream = nullptr;
+    pFactory->CreateStream(&pStream);
+    pStream->InitializeFromFilename(filePath.c_str(), GENERIC_WRITE);
+    pEncoder->Initialize(pStream, WICBitmapEncoderNoCache);
+
+    IWICBitmapFrameEncode* pFrame = nullptr;
+    pEncoder->CreateNewFrame(&pFrame, nullptr);
+    pFrame->Initialize(nullptr);
+    pFrame->SetSize(desc.Width, desc.Height);
+    WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+    pFrame->SetPixelFormat(&format);
+
+    // Convert RGBA to BGRA
+    std::vector<BYTE> buffer(desc.Width * desc.Height * 4);
+    const BYTE* srcRow = (const BYTE*)mapped.pData;
+    BYTE* dstRow = buffer.data();
+    for (UINT y = 0; y < desc.Height; ++y) {
+        for (UINT x = 0; x < desc.Width; ++x) {
+            BYTE r = srcRow[x * 4 + 0];
+            BYTE g = srcRow[x * 4 + 1];
+            BYTE b = srcRow[x * 4 + 2];
+            BYTE a = 255; // Force solid alpha for window screenshot
+            dstRow[x * 4 + 0] = b;
+            dstRow[x * 4 + 1] = g;
+            dstRow[x * 4 + 2] = r;
+            dstRow[x * 4 + 3] = a;
+        }
+        srcRow += mapped.RowPitch;
+        dstRow += desc.Width * 4;
+    }
+
+    pFrame->WritePixels(desc.Height, desc.Width * 4, (UINT)buffer.size(), buffer.data());
+    pFrame->Commit();
+    pEncoder->Commit();
+
+    pFrame->Release();
+    pStream->Release();
+    pEncoder->Release();
+    pFactory->Release();
+
+    pd3dDeviceContext->Unmap(pStaging, 0);
+    pStaging->Release();
+    return true;
+}
+

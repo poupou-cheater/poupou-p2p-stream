@@ -218,7 +218,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     InitGui(hWnd, g_dx);
     g_guiInitialized = true;
 
-    ShowWindow(hWnd, nCmdShow);
+    ShowWindow(hWnd, SW_SHOWNORMAL);
     UpdateWindow(hWnd);
 
     // Main loop
@@ -245,6 +245,23 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
         g_dx.BeginFrame(clearColor);
 
         RenderGui(hWnd, g_dx);
+
+        static int frameCount = 0;
+        frameCount++;
+        if (frameCount >= 6) {
+            const wchar_t* cmdLine = GetCommandLineW();
+            const wchar_t* pShot = wcsstr(cmdLine, L"--screenshot=");
+            if (pShot) {
+                pShot += 13;
+                wchar_t pathBuf[MAX_PATH] = { 0 };
+                int idx = 0;
+                while (*pShot && *pShot != L' ' && idx < MAX_PATH - 1) {
+                    pathBuf[idx++] = *pShot++;
+                }
+                g_dx.SaveScreenshot(pathBuf);
+                done = true;
+            }
+        }
 
         g_dx.EndFrame();
     }
