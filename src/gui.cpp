@@ -343,8 +343,8 @@ void ShutdownGui() {
     ImGui::DestroyContext();
 }
 
-// Draw custom circular avatar with status ring (transparent fill, only colored ring)
-static void RenderAvatar(const char* id, const char* label, bool online, bool isSpeaking, float radius, bool isMe = false) {
+// Draw custom circular avatar (simple circle by default, glowing voice activity ring only when speaking)
+static void RenderAvatar(const char* id, const char* label, bool isSpeaking, float radius, bool isMe = false) {
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     ImVec2 pos = ImGui::GetCursorScreenPos();
     ImVec2 center = ImVec2(pos.x + radius, pos.y + radius);
@@ -357,27 +357,23 @@ static void RenderAvatar(const char* id, const char* label, bool online, bool is
     }
     bool hovered = !isMe && ImGui::IsItemHovered();
 
-    // Requirement 1 & 2: Avatars are transparent circles. "me" defaults to neutral/grey contour (not green) unless active.
-    float ringRadius = radius + 2.0f * g_dpiScale;
-    if (online) {
-        ImU32 ringCol = isSpeaking ? IM_COL32(72, 224, 110, 255) : IM_COL32(60, 180, 95, 220);
-        drawList->AddCircle(center, ringRadius, ringCol, 24, 2.0f * g_dpiScale);
-        if (isSpeaking) {
-            float time = (float)ImGui::GetTime();
-            float glowR = ringRadius + (2.0f + sinf(time * 4.0f) * 1.5f) * g_dpiScale;
-            drawList->AddCircle(center, glowR, IM_COL32(72, 224, 110, 100), 24, 1.2f * g_dpiScale);
-        }
-    } else {
-        // Neutral grey contour by default
-        ImU32 neutralRingCol = IM_COL32(75, 78, 92, 190);
-        drawList->AddCircle(center, ringRadius, neutralRingCol, 24, 1.8f * g_dpiScale);
+    // Requirement 2: Simple neutral circle without any permanent colored contour
+    drawList->AddCircle(center, radius, IM_COL32(70, 74, 88, 170), 32, 1.5f * g_dpiScale);
+
+    // Glowing speech ring ONLY when actively speaking (Voice Activity Detection)
+    if (isSpeaking) {
+        float ringRadius = radius + 2.5f * g_dpiScale;
+        drawList->AddCircle(center, ringRadius, IM_COL32(72, 224, 110, 255), 32, 2.0f * g_dpiScale);
+        float time = (float)ImGui::GetTime();
+        float glowR = ringRadius + (2.0f + sinf(time * 6.0f) * 1.5f) * g_dpiScale;
+        drawList->AddCircle(center, glowR, IM_COL32(72, 224, 110, 120), 32, 1.4f * g_dpiScale);
     }
 
     // Label inside transparent circle
     if (label && label[0] != '\0') {
         ImVec2 textSize = ImGui::CalcTextSize(label);
         ImVec2 textPos = ImVec2(center.x - textSize.x * 0.5f, center.y - textSize.y * 0.5f);
-        ImU32 textCol = (isMe && !online) ? IM_COL32(185, 188, 200, 255) : IM_COL32(240, 240, 245, 255);
+        ImU32 textCol = IM_COL32(235, 238, 245, 255);
         drawList->AddText(textPos, textCol, label);
     }
 
@@ -386,8 +382,8 @@ static void RenderAvatar(const char* id, const char* label, bool online, bool is
         if (hovered) {
             ImGui::BeginTooltip();
             ImGui::Text("%s", label && label[0] ? label : "Peer");
-            ImGui::TextColored(online ? ImVec4(0.3f, 0.9f, 0.4f, 1.0f) : ImVec4(0.9f, 0.4f, 0.4f, 1.0f),
-                               online ? (isSpeaking ? "Speaking" : "Connected") : "Offline");
+            ImGui::TextColored(isSpeaking ? ImVec4(0.3f, 0.9f, 0.4f, 1.0f) : ImVec4(0.7f, 0.7f, 0.8f, 1.0f),
+                               isSpeaking ? "Speaking" : "Idle");
             ImGui::TextDisabled("Right-click for audio & poke options");
             ImGui::EndTooltip();
         }
@@ -418,13 +414,17 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::SetCursorPos(ImVec2(20.0f * g_dpiScale, avatarY));
 
     // Left side: 3 Circular avatars ( ) ( ) (me)
-    // Requirement 5: Avatar 2 and "me" only green when actively streaming; neutral grey contour when idle/offline
-    bool isConnectedStreaming = g_state.isStreaming && !g_state.activeConnectedIp.empty();
-    RenderAvatar("##avatar_peer1", "", false, false, avatarRadius, false);
+    // Requirement 2: Glowing speech ring ONLY when someone is actively speaking (Voice Activity Detection).
+    // Simple neutral circle at all other times, no permanent colored ring on anyone.
+    bool peer1Speaking = false;
+    bool peer2Speaking = false;
+    bool meSpeaking = false;
+
+    RenderAvatar("##avatar_peer1", "", peer1Speaking, avatarRadius, false);
     ImGui::SameLine(0, 10.0f * g_dpiScale);
-    RenderAvatar("##avatar_peer2", "", isConnectedStreaming, isConnectedStreaming, avatarRadius, false);
+    RenderAvatar("##avatar_peer2", "", peer2Speaking, avatarRadius, false);
     ImGui::SameLine(0, 10.0f * g_dpiScale);
-    RenderAvatar("##avatar_me", "me", isConnectedStreaming, false, avatarMeRadius, true);
+    RenderAvatar("##avatar_me", "me", meSpeaking, avatarMeRadius, true);
 
     // Center: Navigation pill buttons with enlarged height and padding
     float navBtnHeight = 40.0f * g_dpiScale;
@@ -642,49 +642,52 @@ static void RenderPeerCard(Peer& peer, int index, float cardWidth) {
     // Draw crisp star icon centered over the button
     ImVec2 starCenter = ImVec2(starBtnPos.x + starBtnSize * 0.5f, elemY + elemHeight * 0.5f);
     ImU32 starColor = peer.isFavorite ? IM_COL32(255, 204, 0, 255) : IM_COL32(120, 124, 138, 255);
-    IconManager::DrawStar(drawList, starCenter, 7.5f * g_dpiScale, peer.isFavorite, starColor);
+    IconManager::DrawStar(drawList, starCenter, 8.0f * g_dpiScale, peer.isFavorite, starColor, 1.4f * g_dpiScale);
 
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip(peer.isFavorite ? "Remove from favorites" : "Add to favorites (moves to top)");
     }
 
-    // Action buttons on the right side: [ stream ] [ rename ] [ ✕ ]
-    float btnStreamWidth = 84.0f * g_dpiScale;
+    // Action buttons on the right side: [ connect / disconnect ] [ rename ] [ ✕ ]
+    bool isConnected = (g_state.isStreaming && g_state.activeConnectedIp == peer.ip);
+    float btnConnWidth = 96.0f * g_dpiScale;
     float btnRenameWidth = 76.0f * g_dpiScale;
     float btnDelWidth = elemHeight;
     float spacing = 8.0f * g_dpiScale;
-    float actionsWidth = btnStreamWidth + spacing + btnRenameWidth + spacing + btnDelWidth;
+    float actionsWidth = btnConnWidth + spacing + btnRenameWidth + spacing + btnDelWidth;
     float rightEdge = cardPos.x + cardWidth - 12.0f * g_dpiScale;
 
-    // [ stream ] / [ connect ] Button
+    // Requirement 5: [ connect ] / [ disconnect ] Button
     ImGui::SetCursorScreenPos(ImVec2(rightEdge - actionsWidth, elemY));
-    std::string connBtnId = "connect##" + std::to_string(index);
+    std::string connBtnId = "conn_btn##" + std::to_string(index);
 
-    ImVec4 connCol = isOnline ? ImVec4(0.18f, 0.45f, 0.25f, 1.0f) : ImVec4(0.12f, 0.13f, 0.16f, 1.0f);
-    ImVec4 connColHover = isOnline ? ImVec4(0.22f, 0.55f, 0.30f, 1.0f) : ImVec4(0.36f, 0.14f, 0.18f, 1.0f);
+    ImVec4 connCol = isConnected ? ImVec4(0.48f, 0.16f, 0.20f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f);
+    ImVec4 connColHover = isConnected ? ImVec4(0.62f, 0.20f, 0.25f, 1.0f) : ImVec4(0.36f, 0.14f, 0.18f, 1.0f);
     ImGui::PushStyleColor(ImGuiCol_Button, connCol);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, connColHover);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f * g_dpiScale);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f * g_dpiScale, 6.0f * g_dpiScale));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f * g_dpiScale, 6.0f * g_dpiScale));
 
-    const char* connLabel = isOnline ? "stream" : (isConnecting ? "connecting..." : "connect");
-    if (ImGui::Button(connLabel, ImVec2(btnStreamWidth, elemHeight))) {
-        if (!isOnline) {
+    const char* connLabel = isConnected ? "disconnect" : (isConnecting ? "connecting..." : "connect");
+    if (ImGui::Button(connLabel, ImVec2(btnConnWidth, elemHeight))) {
+        if (isConnected) {
+            g_state.activeConnectedIp.clear();
+            g_state.isStreaming = false;
+            peer.status = PeerStatus::Offline;
+            SavePeers(g_state);
+        } else {
             peer.status = PeerStatus::Online;
             g_state.activeConnectedIp = peer.ip;
             g_state.isStreaming = true;
-            SavePeers(g_state);
-        } else {
-            g_state.activeConnectedIp = peer.ip;
-            g_state.isStreaming = true;
             g_state.currentTab = AppTab::CurrentConnection;
+            SavePeers(g_state);
         }
     }
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(2);
 
     // [ rename ] Button
-    ImGui::SetCursorScreenPos(ImVec2(rightEdge - actionsWidth + btnStreamWidth + spacing, elemY));
+    ImGui::SetCursorScreenPos(ImVec2(rightEdge - actionsWidth + btnConnWidth + spacing, elemY));
     std::string renameBtnId = "rename##" + std::to_string(index);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f * g_dpiScale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f * g_dpiScale, 6.0f * g_dpiScale));
@@ -713,23 +716,29 @@ static void RenderPeerCard(Peer& peer, int index, float cardWidth) {
     ImGui::Dummy(ImVec2(cardWidth, 0.0f));
 }
 
-// Home View strictly following the user's sketch (Reactive dimensions!)
+// Home View strictly following the user's sketch (Reactive dimensions & perfectly centered!)
 static void RenderHomeView(float contentWidth, float contentHeight) {
-    // 1. Top Add Bar: [ ip tailscale ] + [ name ] + [ add ]
-    float availWidth = ImGui::GetContentRegionAvail().x;
-    float addBarWidth = 720.0f * g_dpiScale;
-    if (addBarWidth > availWidth - 32.0f * g_dpiScale) {
-        addBarWidth = availWidth - 32.0f * g_dpiScale;
-    }
-    float addBarStartX = (availWidth - addBarWidth) * 0.5f;
-    if (addBarStartX < 16.0f * g_dpiScale) addBarStartX = 16.0f * g_dpiScale;
+    float padTop = 18.0f * g_dpiScale;
+    float addBoxHeight = 52.0f * g_dpiScale;
+    float gapY = 16.0f * g_dpiScale;
+    float padBottom = 22.0f * g_dpiScale;
 
-    ImGui::SetCursorPos(ImVec2(addBarStartX, ImGui::GetCursorPosY()));
+    // 1. Proportions and horizontal centering
+    float maxContainerWidth = 920.0f * g_dpiScale;
+    float containerWidth = (contentWidth < maxContainerWidth + 48.0f * g_dpiScale) ? (contentWidth - 48.0f * g_dpiScale) : maxContainerWidth;
+    float containerStartX = (contentWidth - containerWidth) * 0.5f;
+
+    float addBarWidth = 760.0f * g_dpiScale;
+    if (addBarWidth > containerWidth) addBarWidth = containerWidth;
+    float addBarStartX = (contentWidth - addBarWidth) * 0.5f;
+
+    // Position of the top add bar
+    float startY = 70.0f * g_dpiScale + padTop;
+    ImGui::SetCursorPos(ImVec2(addBarStartX, startY));
 
     // Container box around the add bar
     ImVec2 addBoxPos = ImGui::GetCursorScreenPos();
     ImDrawList* drawList = ImGui::GetWindowDrawList();
-    float addBoxHeight = 52.0f * g_dpiScale;
     drawList->AddRectFilled(addBoxPos, ImVec2(addBoxPos.x + addBarWidth, addBoxPos.y + addBoxHeight),
                             IM_COL32(20, 21, 26, 255), 10.0f * g_dpiScale);
     drawList->AddRect(addBoxPos, ImVec2(addBoxPos.x + addBarWidth, addBoxPos.y + addBoxHeight),
@@ -739,7 +748,7 @@ static void RenderHomeView(float contentWidth, float contentHeight) {
     float inputElemY = addBoxPos.y + (addBoxHeight - inputElemHeight) * 0.5f;
     ImGui::SetCursorScreenPos(ImVec2(addBoxPos.x + 12.0f * g_dpiScale, inputElemY));
 
-    // Calculate proportions:
+    // Calculate proportions
     float addBtnWidth = 84.0f * g_dpiScale;
     float spaceBetween = 8.0f * g_dpiScale;
     float innerTotalWidth = addBarWidth - 24.0f * g_dpiScale;
@@ -788,35 +797,28 @@ static void RenderHomeView(float contentWidth, float contentHeight) {
     ImGui::PopStyleColor(3);
     ImGui::PopStyleVar(2);
 
-    ImGui::SetCursorPos(ImVec2(0.0f, ImGui::GetCursorPosY() + 20.0f * g_dpiScale));
-    ImGui::Dummy(ImVec2(0.0f, 0.0f));
+    // 2. Large Rounded Container for Saved Connections (Centered & Harmonious!)
+    float containerY = startY + addBoxHeight + gapY;
+    float totalWindowHeight = contentHeight + 70.0f * g_dpiScale;
+    float containerHeight = totalWindowHeight - containerY - padBottom;
+    if (containerHeight < 160.0f * g_dpiScale) containerHeight = 160.0f * g_dpiScale;
 
-    // 2. Large Rounded Container for Saved Connections (Reactive dimensions!)
-    float availRegionX = ImGui::GetContentRegionAvail().x;
-    float availRegionY = ImGui::GetContentRegionAvail().y;
-    float containerMargin = 16.0f * g_dpiScale;
-    float containerWidth = availRegionX - containerMargin * 2.0f;
-    float containerHeight = availRegionY - 16.0f * g_dpiScale;
-    if (containerHeight < 150.0f * g_dpiScale) containerHeight = 150.0f * g_dpiScale;
-
-    ImVec2 winPos = ImGui::GetWindowPos();
-    float curY = ImGui::GetCursorPosY();
-    ImVec2 containerScreenMin = ImVec2(winPos.x + containerMargin, winPos.y + curY);
+    ImGui::SetCursorPos(ImVec2(containerStartX, containerY));
+    ImVec2 containerScreenMin = ImGui::GetCursorScreenPos();
     ImVec2 containerScreenMax = ImVec2(containerScreenMin.x + containerWidth, containerScreenMin.y + containerHeight);
 
     drawList->AddRectFilled(containerScreenMin, containerScreenMax, IM_COL32(19, 20, 24, 255), 14.0f * g_dpiScale);
     drawList->AddRect(containerScreenMin, containerScreenMax, IM_COL32(58, 59, 69, 255), 14.0f * g_dpiScale, 0, 1.2f);
 
     // Inside child scroll area
-    float innerPadX = 12.0f * g_dpiScale;
+    float innerPadX = 14.0f * g_dpiScale;
     float innerPadY = 14.0f * g_dpiScale;
-    ImGui::SetCursorPos(ImVec2(containerMargin + innerPadX, curY + innerPadY));
-    ImGui::Dummy(ImVec2(0.0f, 0.0f));
+    ImGui::SetCursorPos(ImVec2(containerStartX + innerPadX, containerY + innerPadY));
 
     ImVec2 childSize = ImVec2(containerWidth - innerPadX * 2.0f, containerHeight - innerPadY * 2.0f);
     ImGui::BeginChild("##peer_cards_scroll", childSize, false, 0);
 
-    // Sort peers: favorites first (per requirement #2)
+    // Sort peers: favorites first
     static std::vector<int> sortedIndices;
     if (sortedIndices.size() != g_state.peers.size()) {
         sortedIndices.resize(g_state.peers.size());
@@ -830,7 +832,6 @@ static void RenderHomeView(float contentWidth, float contentHeight) {
         return false;
     });
 
-    // Render cards using reactive width from ImGui::GetContentRegionAvail().x!
     for (int idx : sortedIndices) {
         float cardWidth = ImGui::GetContentRegionAvail().x;
         RenderPeerCard(g_state.peers[idx], idx, cardWidth);
@@ -844,45 +845,43 @@ static void RenderHomeView(float contentWidth, float contentHeight) {
     ImGui::EndChild();
 }
 
-
-// Secondary View: Current Connection (Live Screen & Collaborative Dock)
-static void RenderCurrentConnectionView(float contentWidth, float contentHeight) {
+// Secondary View: Current Connection (Live Screen & Floating Collaborative Dock)
+// Edge-to-edge full bleed rendering with no bounding boxes or frames
+static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     ImDrawList* drawList = ImGui::GetWindowDrawList();
-    ImVec2 start = ImGui::GetCursorScreenPos();
-    float viewHeight = contentHeight - 40.0f * g_dpiScale;
 
-    // Stream frame preview area
-    ImVec2 streamMin = start;
-    ImVec2 streamMax = ImVec2(start.x + contentWidth, start.y + viewHeight);
+    // 1. Fullscreen Edge-to-Edge Stream canvas covering (0, 0) to (windowWidth, windowHeight)
+    ImVec2 streamMin = ImVec2(0, 0);
+    ImVec2 streamMax = ImVec2(windowWidth, windowHeight);
 
-    drawList->AddRectFilled(streamMin, streamMax, IM_COL32(12, 13, 16, 255), 10.0f * g_dpiScale);
-    drawList->AddRect(streamMin, streamMax, IM_COL32(50, 52, 62, 255), 10.0f * g_dpiScale, 0, 1.0f);
-
-    // Requirement 3: Technical stats overlay text removed! Only stream canvas and collaborative dock kept
     if (!g_state.activeConnectedIp.empty()) {
+        drawList->AddRectFilled(streamMin, streamMax, IM_COL32(11, 12, 16, 255));
+
         // Simulated screen preview center circle
-        ImVec2 previewCenter = ImVec2(streamMin.x + contentWidth * 0.5f, streamMin.y + viewHeight * 0.45f);
-        drawList->AddCircleFilled(previewCenter, 45.0f * g_dpiScale, IM_COL32(26, 28, 36, 255), 32);
-        drawList->AddCircle(previewCenter, 45.0f * g_dpiScale, IM_COL32(80, 250, 123, 200), 32, 2.0f * g_dpiScale);
+        ImVec2 previewCenter = ImVec2(windowWidth * 0.5f, windowHeight * 0.48f);
+        drawList->AddCircleFilled(previewCenter, 50.0f * g_dpiScale, IM_COL32(22, 24, 32, 255), 32);
+        drawList->AddCircle(previewCenter, 50.0f * g_dpiScale, IM_COL32(72, 224, 110, 180), 32, 2.0f * g_dpiScale);
         
-        const char* previewText = "pc poupou (sharing)";
+        const char* previewText = "pc poupou (live stream)";
         ImVec2 pts = ImGui::CalcTextSize(previewText);
         drawList->AddText(ImVec2(previewCenter.x - pts.x * 0.5f, previewCenter.y - pts.y * 0.5f), IM_COL32(240, 240, 245, 255), previewText);
     } else {
+        drawList->AddRectFilled(streamMin, streamMax, IM_COL32(14, 15, 19, 255));
+
         const char* msg = "No active peer stream. Select a peer on the 'Home' tab and click [ connect ].";
         ImVec2 ms = ImGui::CalcTextSize(msg);
-        drawList->AddText(ImVec2(start.x + (contentWidth - ms.x) * 0.5f, start.y + viewHeight * 0.45f),
-                          IM_COL32(160, 165, 180, 255), msg);
+        drawList->AddText(ImVec2((windowWidth - ms.x) * 0.5f, windowHeight * 0.48f),
+                          IM_COL32(150, 154, 170, 255), msg);
     }
 
-    // Floating Collaborative Bottom Dock (from architectural blueprint!)
+    // 2. Floating Collaborative Bottom Dock (transparent floating element without global window framing)
     float dockWidth = 440.0f * g_dpiScale;
     float dockHeight = 52.0f * g_dpiScale;
-    ImVec2 dockMin = ImVec2(start.x + (contentWidth - dockWidth) * 0.5f, streamMax.y - dockHeight - 16.0f * g_dpiScale);
+    ImVec2 dockMin = ImVec2((windowWidth - dockWidth) * 0.5f, windowHeight - dockHeight - 24.0f * g_dpiScale);
     ImVec2 dockMax = ImVec2(dockMin.x + dockWidth, dockMin.y + dockHeight);
 
-    drawList->AddRectFilled(dockMin, dockMax, IM_COL32(20, 21, 28, 240), 16.0f * g_dpiScale);
-    drawList->AddRect(dockMin, dockMax, IM_COL32(65, 68, 85, 255), 16.0f * g_dpiScale, 0, 1.2f);
+    drawList->AddRectFilled(dockMin, dockMax, IM_COL32(18, 19, 25, 205), 16.0f * g_dpiScale);
+    drawList->AddRect(dockMin, dockMax, IM_COL32(65, 68, 85, 160), 16.0f * g_dpiScale, 0, 1.0f);
 
     ImGui::SetCursorScreenPos(ImVec2(dockMin.x + 16.0f * g_dpiScale, dockMin.y + 10.0f * g_dpiScale));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f * g_dpiScale);
@@ -1136,20 +1135,22 @@ void RenderGui(HWND hWnd, Dx11Context& dx) {
     ImGui::Begin("##PoupouMainViewport", nullptr, mainFlags);
     ImGui::PopStyleVar(2);
 
-    // 1. Header (Avatars, Tabs, Window controls, Drag support)
-    RenderHeader(hWnd, windowWidth);
-
-    // 2. Active Tab Content
-    float contentWidth = windowWidth;
-    float contentHeight = windowHeight - 70.0f * g_dpiScale;
-
-
-    if (g_state.currentTab == AppTab::Home) {
-        RenderHomeView(contentWidth, contentHeight);
-    } else if (g_state.currentTab == AppTab::CurrentConnection) {
-        RenderCurrentConnectionView(contentWidth, contentHeight);
-    } else if (g_state.currentTab == AppTab::Setting) {
-        RenderSettingsView(contentWidth, contentHeight);
+    // Active Tab Content & Header Layering
+    if (g_state.currentTab == AppTab::CurrentConnection) {
+        // Fullscreen edge-to-edge video canvas first
+        RenderCurrentConnectionView(windowWidth, windowHeight);
+        // Header drawn on top so topbar is completely transparent above video
+        RenderHeader(hWnd, windowWidth);
+    } else {
+        // Standard header for Home and Settings
+        RenderHeader(hWnd, windowWidth);
+        float contentWidth = windowWidth;
+        float contentHeight = windowHeight - 70.0f * g_dpiScale;
+        if (g_state.currentTab == AppTab::Home) {
+            RenderHomeView(contentWidth, contentHeight);
+        } else if (g_state.currentTab == AppTab::Setting) {
+            RenderSettingsView(contentWidth, contentHeight);
+        }
     }
 
     // 3. Modals

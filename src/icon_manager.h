@@ -19,7 +19,7 @@ public:
     ID3D11ShaderResourceView* GetSvgTexture(const std::string& svgPath, int width, int height);
 
     // Vector drawing helpers for pixel-perfect Dear ImGui rendering
-    static void DrawStar(ImDrawList* drawList, ImVec2 center, float radius, bool filled, ImU32 color);
+    static void DrawStar(ImDrawList* drawList, ImVec2 center, float radius, bool filled, ImU32 color, float thickness = 1.4f);
     static void DrawStatusIndicator(ImDrawList* drawList, ImVec2 center, float radius, bool online, bool pulse = true);
 
 private:

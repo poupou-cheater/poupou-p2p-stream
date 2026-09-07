@@ -107,19 +107,23 @@ ID3D11ShaderResourceView* IconManager::GetSvgTexture(const std::string& svgPath,
     return nullptr;
 }
 
-void IconManager::DrawStar(ImDrawList* drawList, ImVec2 center, float radius, bool filled, ImU32 color) {
+void IconManager::DrawStar(ImDrawList* drawList, ImVec2 center, float radius, bool filled, ImU32 color, float thickness) {
     const float PI = 3.14159265358979323846f;
     ImVec2 pts[10];
     for (int i = 0; i < 10; ++i) {
         float angle = -PI * 0.5f + i * (PI / 5.0f);
-        float r = (i % 2 == 0) ? radius : (radius * 0.42f);
+        float r = (i % 2 == 0) ? radius : (radius * 0.382f);
         pts[i] = ImVec2(center.x + cosf(angle) * r, center.y + sinf(angle) * r);
     }
 
     if (filled) {
-        drawList->AddConvexPolyFilled(pts, 10, color);
+        // Triangulate star from center to avoid concave polygon distortion
+        for (int i = 0; i < 10; ++i) {
+            drawList->AddTriangleFilled(center, pts[i], pts[(i + 1) % 10], color);
+        }
+        drawList->AddPolyline(pts, 10, color, ImDrawFlags_Closed, thickness);
     } else {
-        drawList->AddPolyline(pts, 10, color, ImDrawFlags_Closed, 1.8f);
+        drawList->AddPolyline(pts, 10, color, ImDrawFlags_Closed, thickness);
     }
 }
 
