@@ -7,7 +7,7 @@
 
 enum class PeerStatus {
     Offline,
-    Connecting,
+    Waiting,
     Online
 };
 

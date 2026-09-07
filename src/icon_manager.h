@@ -4,6 +4,7 @@
 #include <string>
 #include <unordered_map>
 #include "imgui.h"
+#include "gui.h"
 
 class IconManager {
 public:
@@ -20,7 +21,15 @@ public:
 
     // Vector drawing helpers for pixel-perfect Dear ImGui rendering
     static void DrawStar(ImDrawList* drawList, ImVec2 center, float radius, bool filled, ImU32 color, float thickness = 1.4f);
-    static void DrawStatusIndicator(ImDrawList* drawList, ImVec2 center, float radius, bool online, bool pulse = true);
+    static void DrawStatusIndicator(ImDrawList* drawList, ImVec2 center, float radius, PeerStatus status, bool pulse = true);
+
+    // Vector dock controls
+    static void DrawIconAdd(ImDrawList* drawList, ImVec2 center, float size, ImU32 color);
+    static void DrawIconDraw(ImDrawList* drawList, ImVec2 center, float size, ImU32 color);
+    static void DrawIconShare(ImDrawList* drawList, ImVec2 center, float size, ImU32 color);
+    static void DrawIconMic(ImDrawList* drawList, ImVec2 center, float size, bool muted, ImU32 color);
+    static void DrawIconAudio(ImDrawList* drawList, ImVec2 center, float size, bool deafened, ImU32 color);
+    static void DrawIconEnd(ImDrawList* drawList, ImVec2 center, float size, ImU32 color);
 
 private:
     IconManager() = default;

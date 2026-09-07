@@ -149,7 +149,7 @@ void LoadPeers(GuiState& state) {
                 else if (key == "favorite") currentPeer.isFavorite = (val == "1");
                 else if (key == "status") {
                     if (val == "online") currentPeer.status = PeerStatus::Online;
-                    else if (val == "connecting") currentPeer.status = PeerStatus::Connecting;
+                    else if (val == "waiting" || val == "connecting") currentPeer.status = PeerStatus::Waiting;
                     else currentPeer.status = PeerStatus::Offline;
                 } else if (key == "latency") {
                     currentPeer.latencyMs = std::atoi(val.c_str());
@@ -191,7 +191,7 @@ void SavePeers(const GuiState& state) {
             iniFile << "ip=" << peer.ip << "\n";
             iniFile << "name=" << peer.name << "\n";
             iniFile << "favorite=" << (peer.isFavorite ? "1" : "0") << "\n";
-            iniFile << "status=" << (peer.status == PeerStatus::Online ? "online" : (peer.status == PeerStatus::Connecting ? "connecting" : "offline")) << "\n";
+            iniFile << "status=" << (peer.status == PeerStatus::Online ? "online" : (peer.status == PeerStatus::Waiting ? "waiting" : "offline")) << "\n";
             iniFile << "latency=" << peer.latencyMs << "\n\n";
         }
     }
@@ -206,7 +206,7 @@ void SavePeers(const GuiState& state) {
             jsonFile << "    \"ip\": \"" << peer.ip << "\",\n";
             jsonFile << "    \"name\": \"" << peer.name << "\",\n";
             jsonFile << "    \"favorite\": " << (peer.isFavorite ? "true" : "false") << ",\n";
-            jsonFile << "    \"status\": \"" << (peer.status == PeerStatus::Online ? "online" : (peer.status == PeerStatus::Connecting ? "connecting" : "offline")) << "\",\n";
+            jsonFile << "    \"status\": \"" << (peer.status == PeerStatus::Online ? "online" : (peer.status == PeerStatus::Waiting ? "waiting" : "offline")) << "\",\n";
             jsonFile << "    \"latency\": " << peer.latencyMs << "\n";
             jsonFile << "  }" << (i + 1 < state.peers.size() ? ",\n" : "\n");
         }
@@ -538,23 +538,6 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
                       IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
     ImGui::PopStyleVar(2);
 
-    // Invisible Titlebar Drag Area - drag window or double-click to maximize on any empty space in top header
-    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && 
-        ImGui::GetMousePos().y < (headerStart.y + headerHeight) && 
-        !ImGui::IsAnyItemHovered() && 
-        !ImGui::IsAnyItemActive()) 
-    {
-        ShowWindow(hWnd, IsZoomed(hWnd) ? SW_RESTORE : SW_MAXIMIZE);
-    }
-    else if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && 
-             ImGui::GetMousePos().y < (headerStart.y + headerHeight) && 
-             !ImGui::IsAnyItemHovered() && 
-             !ImGui::IsAnyItemActive()) 
-    {
-        ReleaseCapture();
-        SendMessage(hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-    }
-
     ImGui::SetCursorPos(ImVec2(16.0f * g_dpiScale, headerHeight + 10.0f * g_dpiScale));
     ImGui::Dummy(ImVec2(0.0f, 0.0f));
 }
@@ -597,10 +580,17 @@ static void RenderPeerCard(Peer& peer, int index, float cardWidth) {
     float textY = elemY + (elemHeight - textSize.y) * 0.5f;
     drawList->AddText(ImVec2(badge1Pos.x + badgePadX, textY), IM_COL32(240, 240, 248, 255), badgeText.c_str());
 
-    // Badge 2: [ status : offline ] or [ status : online ]
-    bool isOnline = (peer.status == PeerStatus::Online);
-    bool isConnecting = (peer.status == PeerStatus::Connecting);
-    const char* statusStr = isOnline ? "online" : (isConnecting ? "connecting..." : "offline");
+    // Badge 2: [ status : offline ] / [ status : waiting ] / [ status : online ]
+    const char* statusStr = "offline";
+    ImU32 statusCol = IM_COL32(255, 85, 85, 255); // Red
+
+    if (peer.status == PeerStatus::Online) {
+        statusStr = "online";
+        statusCol = IM_COL32(80, 250, 123, 255); // Green
+    } else if (peer.status == PeerStatus::Waiting) {
+        statusStr = "waiting";
+        statusCol = IM_COL32(255, 204, 0, 255); // Yellow
+    }
     
     std::string statusBadgeText = std::string("status : ") + statusStr;
     ImVec2 statusTextSize = ImGui::CalcTextSize(statusBadgeText.c_str());
@@ -614,12 +604,38 @@ static void RenderPeerCard(Peer& peer, int index, float cardWidth) {
 
     // Status indicator dot centered vertically at elemY + elemHeight * 0.5f
     ImVec2 dotCenter = ImVec2(statusBadgePos.x + 13.0f * g_dpiScale, elemY + elemHeight * 0.5f);
-    IconManager::DrawStatusIndicator(drawList, dotCenter, 4.0f * g_dpiScale, isOnline, true);
+    IconManager::DrawStatusIndicator(drawList, dotCenter, 4.0f * g_dpiScale, peer.status, true);
 
     // Status text colored and centered vertically
     float statusTextY = elemY + (elemHeight - statusTextSize.y) * 0.5f;
-    ImU32 statusCol = isOnline ? IM_COL32(80, 250, 123, 255) : (isConnecting ? IM_COL32(241, 250, 140, 255) : IM_COL32(255, 85, 85, 255));
     drawList->AddText(ImVec2(statusBadgePos.x + 23.0f * g_dpiScale, statusTextY), statusCol, statusBadgeText.c_str());
+
+    // Clickable status badge to simulate / toggle handshake when testing
+    ImGui::SetCursorScreenPos(statusBadgePos);
+    std::string badgeBtnId = "##status_btn_" + std::to_string(index);
+    if (ImGui::InvisibleButton(badgeBtnId.c_str(), ImVec2(statusBadgeWidth, elemHeight))) {
+        if (peer.status == PeerStatus::Waiting) {
+            peer.status = PeerStatus::Online;
+            g_state.isStreaming = true;
+            SavePeers(g_state);
+        } else if (peer.status == PeerStatus::Online) {
+            peer.status = PeerStatus::Offline;
+            if (g_state.activeConnectedIp == peer.ip) {
+                g_state.activeConnectedIp.clear();
+                g_state.isStreaming = false;
+            }
+            SavePeers(g_state);
+        }
+    }
+    if (ImGui::IsItemHovered()) {
+        if (peer.status == PeerStatus::Waiting) {
+            ImGui::SetTooltip("Waiting for P2P handshake (click to simulate accepted handshake)");
+        } else if (peer.status == PeerStatus::Online) {
+            ImGui::SetTooltip("P2P stream online & active (click to disconnect)");
+        } else {
+            ImGui::SetTooltip("Peer is currently offline / unreachable");
+        }
+    }
 
     // Favorite Star Button [ ★ ] / [ ☆ ]
     float starBtnSize = elemHeight;
@@ -649,7 +665,9 @@ static void RenderPeerCard(Peer& peer, int index, float cardWidth) {
     }
 
     // Action buttons on the right side: [ connect / disconnect ] [ rename ] [ ✕ ]
-    bool isConnected = (g_state.isStreaming && g_state.activeConnectedIp == peer.ip);
+    bool isConnected = (g_state.isStreaming && g_state.activeConnectedIp == peer.ip && peer.status == PeerStatus::Online);
+    bool isWaiting = (peer.status == PeerStatus::Waiting);
+
     float btnConnWidth = 96.0f * g_dpiScale;
     float btnRenameWidth = 76.0f * g_dpiScale;
     float btnDelWidth = elemHeight;
@@ -657,29 +675,31 @@ static void RenderPeerCard(Peer& peer, int index, float cardWidth) {
     float actionsWidth = btnConnWidth + spacing + btnRenameWidth + spacing + btnDelWidth;
     float rightEdge = cardPos.x + cardWidth - 12.0f * g_dpiScale;
 
-    // Requirement 5: [ connect ] / [ disconnect ] Button
+    // Requirement 1 & 2: [ connect ] / [ disconnect ] Button
     ImGui::SetCursorScreenPos(ImVec2(rightEdge - actionsWidth, elemY));
     std::string connBtnId = "conn_btn##" + std::to_string(index);
 
-    ImVec4 connCol = isConnected ? ImVec4(0.48f, 0.16f, 0.20f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f);
-    ImVec4 connColHover = isConnected ? ImVec4(0.62f, 0.20f, 0.25f, 1.0f) : ImVec4(0.36f, 0.14f, 0.18f, 1.0f);
+    ImVec4 connCol = isConnected ? ImVec4(0.48f, 0.16f, 0.20f, 1.0f) : (isWaiting ? ImVec4(0.28f, 0.22f, 0.08f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
+    ImVec4 connColHover = isConnected ? ImVec4(0.62f, 0.20f, 0.25f, 1.0f) : (isWaiting ? ImVec4(0.38f, 0.30f, 0.10f, 1.0f) : ImVec4(0.36f, 0.14f, 0.18f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_Button, connCol);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, connColHover);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f * g_dpiScale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f * g_dpiScale, 6.0f * g_dpiScale));
 
-    const char* connLabel = isConnected ? "disconnect" : (isConnecting ? "connecting..." : "connect");
+    const char* connLabel = (isConnected || isWaiting) ? "disconnect" : "connect";
     if (ImGui::Button(connLabel, ImVec2(btnConnWidth, elemHeight))) {
-        if (isConnected) {
-            g_state.activeConnectedIp.clear();
-            g_state.isStreaming = false;
+        if (isConnected || isWaiting) {
+            if (g_state.activeConnectedIp == peer.ip) {
+                g_state.activeConnectedIp.clear();
+                g_state.isStreaming = false;
+            }
             peer.status = PeerStatus::Offline;
             SavePeers(g_state);
         } else {
-            peer.status = PeerStatus::Online;
+            // Requirement 1: Do NOT change tab to CurrentConnection! Stay on Home!
+            peer.status = PeerStatus::Waiting;
             g_state.activeConnectedIp = peer.ip;
-            g_state.isStreaming = true;
-            g_state.currentTab = AppTab::CurrentConnection;
+            g_state.isStreaming = false;
             SavePeers(g_state);
         }
     }
@@ -846,90 +866,224 @@ static void RenderHomeView(float contentWidth, float contentHeight) {
 }
 
 // Secondary View: Current Connection (Live Screen & Floating Collaborative Dock)
-// Edge-to-edge full bleed rendering with no bounding boxes or frames
+// Edge-to-edge full bleed rendering with balanced horizontal participant layout and vector icons
 static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     ImDrawList* drawList = ImGui::GetWindowDrawList();
 
     // 1. Fullscreen Edge-to-Edge Stream canvas covering (0, 0) to (windowWidth, windowHeight)
     ImVec2 streamMin = ImVec2(0, 0);
     ImVec2 streamMax = ImVec2(windowWidth, windowHeight);
+    drawList->AddRectFilled(streamMin, streamMax, IM_COL32(11, 12, 16, 255));
 
-    if (!g_state.activeConnectedIp.empty()) {
-        drawList->AddRectFilled(streamMin, streamMax, IM_COL32(11, 12, 16, 255));
+    // Gather active session participants (Me + connected/waiting peers)
+    struct ParticipantBubble {
+        std::string name;
+        std::string role;
+        PeerStatus status;
+        bool isSpeaking;
+        bool isMe;
+    };
 
-        // Simulated screen preview center circle
-        ImVec2 previewCenter = ImVec2(windowWidth * 0.5f, windowHeight * 0.48f);
-        drawList->AddCircleFilled(previewCenter, 50.0f * g_dpiScale, IM_COL32(22, 24, 32, 255), 32);
-        drawList->AddCircle(previewCenter, 50.0f * g_dpiScale, IM_COL32(72, 224, 110, 180), 32, 2.0f * g_dpiScale);
-        
-        const char* previewText = "pc poupou (live stream)";
-        ImVec2 pts = ImGui::CalcTextSize(previewText);
-        drawList->AddText(ImVec2(previewCenter.x - pts.x * 0.5f, previewCenter.y - pts.y * 0.5f), IM_COL32(240, 240, 245, 255), previewText);
+    std::vector<ParticipantBubble> participants;
+
+    // Check if any peer is active or waiting
+    bool hasActiveSession = !g_state.activeConnectedIp.empty() || g_state.isStreaming;
+    for (const auto& peer : g_state.peers) {
+        if (peer.status == PeerStatus::Online || peer.status == PeerStatus::Waiting) {
+            hasActiveSession = true;
+            break;
+        }
+    }
+
+    if (hasActiveSession) {
+        // Participant 0: "me" (local host)
+        participants.push_back({ "me", "local host", PeerStatus::Online, false, true });
+
+        // Add all active or connected peers
+        for (const auto& peer : g_state.peers) {
+            if (peer.ip == g_state.activeConnectedIp || peer.status == PeerStatus::Online || peer.status == PeerStatus::Waiting) {
+                std::string role = (peer.status == PeerStatus::Online) ? "live stream" : "waiting for peer...";
+                participants.push_back({ peer.name, role, peer.status, false, false });
+            }
+        }
+    }
+
+    // 2. Participant Bubbles - Evenly distributed and centered on the horizontal axis
+    int N = (int)participants.size();
+    if (N > 0) {
+        // Calculate dynamic bubble radius and spacing based on participant count
+        float baseRadius = 72.0f * g_dpiScale;
+        if (N == 1) baseRadius = 82.0f * g_dpiScale;
+        else if (N == 2) baseRadius = 74.0f * g_dpiScale;
+        else if (N == 3) baseRadius = 66.0f * g_dpiScale;
+        else if (N >= 4) baseRadius = 54.0f * g_dpiScale;
+
+        float spacing = 50.0f * g_dpiScale;
+        float maxTotalWidth = windowWidth - 80.0f * g_dpiScale;
+        float totalWidth = N * (2.0f * baseRadius) + (N - 1) * spacing;
+        if (totalWidth > maxTotalWidth && N > 0) {
+            baseRadius = (maxTotalWidth - (N - 1) * spacing) / (2.0f * N);
+            if (baseRadius < 32.0f * g_dpiScale) baseRadius = 32.0f * g_dpiScale;
+            totalWidth = N * (2.0f * baseRadius) + (N - 1) * spacing;
+        }
+
+        float startX = (windowWidth - totalWidth) * 0.5f + baseRadius;
+        float centerY = windowHeight * 0.44f;
+
+        for (int i = 0; i < N; ++i) {
+            const auto& p = participants[i];
+            ImVec2 center(startX + i * (2.0f * baseRadius + spacing), centerY);
+
+            // A. Dark circular canvas card
+            drawList->AddCircleFilled(center, baseRadius, IM_COL32(22, 24, 32, 255), 48);
+
+            // B. Status / Voice Activity Detection ring
+            if (p.isSpeaking) {
+                float ringRadius = baseRadius + 3.0f * g_dpiScale;
+                drawList->AddCircle(center, ringRadius, IM_COL32(72, 224, 110, 255), 48, 2.4f * g_dpiScale);
+                float time = (float)ImGui::GetTime();
+                float glowR = ringRadius + (2.5f + sinf(time * 6.0f) * 1.5f) * g_dpiScale;
+                drawList->AddCircle(center, glowR, IM_COL32(72, 224, 110, 120), 48, 1.5f * g_dpiScale);
+            } else if (p.status == PeerStatus::Waiting) {
+                float ringRadius = baseRadius + 2.5f * g_dpiScale;
+                float time = (float)ImGui::GetTime();
+                float pulseScale = 1.0f + 0.15f * sinf(time * 4.0f);
+                drawList->AddCircle(center, ringRadius * pulseScale, IM_COL32(255, 204, 0, 210), 48, 2.0f * g_dpiScale);
+            } else if (p.status == PeerStatus::Online) {
+                drawList->AddCircle(center, baseRadius, IM_COL32(80, 250, 123, 190), 48, 2.0f * g_dpiScale);
+            } else {
+                drawList->AddCircle(center, baseRadius, IM_COL32(65, 68, 85, 180), 48, 1.5f * g_dpiScale);
+            }
+
+            // C. Avatar initial / monogram inside circle
+            std::string initials;
+            if (p.isMe) {
+                initials = "me";
+            } else if (!p.name.empty()) {
+                initials += (char)toupper(p.name[0]);
+                if (p.name.size() > 1 && p.name[1] != ' ') initials += (char)tolower(p.name[1]);
+            } else {
+                initials = "P";
+            }
+            ImVec2 initSize = ImGui::CalcTextSize(initials.c_str());
+            drawList->AddText(ImVec2(center.x - initSize.x * 0.5f, center.y - initSize.y * 0.5f),
+                              IM_COL32(240, 240, 245, 255), initials.c_str());
+
+            // D. Pill badge below bubble
+            std::string badgeLabel = p.name + " (" + p.role + ")";
+            ImVec2 bTextSize = ImGui::CalcTextSize(badgeLabel.c_str());
+            float badgePadX = 14.0f * g_dpiScale;
+            float badgeW = bTextSize.x + badgePadX * 2.0f + 16.0f * g_dpiScale;
+            float badgeH = 26.0f * g_dpiScale;
+            ImVec2 bMin(center.x - badgeW * 0.5f, center.y + baseRadius + 14.0f * g_dpiScale);
+            ImVec2 bMax(bMin.x + badgeW, bMin.y + badgeH);
+
+            drawList->AddRectFilled(bMin, bMax, IM_COL32(18, 19, 25, 220), 12.0f * g_dpiScale);
+            drawList->AddRect(bMin, bMax, IM_COL32(50, 52, 65, 180), 12.0f * g_dpiScale, 0, 1.0f);
+
+            // Status dot in badge
+            ImVec2 dotC(bMin.x + 12.0f * g_dpiScale, bMin.y + badgeH * 0.5f);
+            IconManager::DrawStatusIndicator(drawList, dotC, 3.5f * g_dpiScale, p.status, true);
+
+            // Badge text
+            drawList->AddText(ImVec2(bMin.x + 22.0f * g_dpiScale, bMin.y + (badgeH - bTextSize.y) * 0.5f),
+                              IM_COL32(230, 232, 240, 255), badgeLabel.c_str());
+        }
     } else {
-        drawList->AddRectFilled(streamMin, streamMax, IM_COL32(14, 15, 19, 255));
-
         const char* msg = "No active peer stream. Select a peer on the 'Home' tab and click [ connect ].";
         ImVec2 ms = ImGui::CalcTextSize(msg);
-        drawList->AddText(ImVec2((windowWidth - ms.x) * 0.5f, windowHeight * 0.48f),
+        drawList->AddText(ImVec2((windowWidth - ms.x) * 0.5f, windowHeight * 0.46f),
                           IM_COL32(150, 154, 170, 255), msg);
     }
 
-    // 2. Floating Collaborative Bottom Dock (transparent floating element without global window framing)
-    float dockWidth = 440.0f * g_dpiScale;
-    float dockHeight = 52.0f * g_dpiScale;
+    // 3. Floating Collaborative Bottom Dock with Vector SVG/ImGui Icons
+    float btnW = 44.0f * g_dpiScale;
+    float btnH = 38.0f * g_dpiScale;
+    float btnSpacing = 8.0f * g_dpiScale;
+    float btnEndW = 50.0f * g_dpiScale;
+    float dockInnerW = (btnW * 5.0f + btnEndW + btnSpacing * 5.0f);
+    float dockPadX = 14.0f * g_dpiScale;
+    float dockWidth = dockInnerW + dockPadX * 2.0f;
+    float dockHeight = 54.0f * g_dpiScale;
     ImVec2 dockMin = ImVec2((windowWidth - dockWidth) * 0.5f, windowHeight - dockHeight - 24.0f * g_dpiScale);
     ImVec2 dockMax = ImVec2(dockMin.x + dockWidth, dockMin.y + dockHeight);
 
-    drawList->AddRectFilled(dockMin, dockMax, IM_COL32(18, 19, 25, 205), 16.0f * g_dpiScale);
+    drawList->AddRectFilled(dockMin, dockMax, IM_COL32(18, 19, 25, 215), 16.0f * g_dpiScale);
     drawList->AddRect(dockMin, dockMax, IM_COL32(65, 68, 85, 160), 16.0f * g_dpiScale, 0, 1.0f);
 
-    ImGui::SetCursorScreenPos(ImVec2(dockMin.x + 16.0f * g_dpiScale, dockMin.y + 10.0f * g_dpiScale));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f * g_dpiScale);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f * g_dpiScale, 6.0f * g_dpiScale));
+    ImGui::SetCursorScreenPos(ImVec2(dockMin.x + dockPadX, dockMin.y + (dockHeight - btnH) * 0.5f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.0f * g_dpiScale);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
 
-    // + Add source
-    if (ImGui::Button("+##dock_add", ImVec2(34.0f * g_dpiScale, 32.0f * g_dpiScale))) {}
+    // Control 1: + (Add stream source)
+    ImVec2 bPos1 = ImGui::GetCursorScreenPos();
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
+    if (ImGui::Button("##dock_add", ImVec2(btnW, btnH))) {}
+    ImGui::PopStyleColor();
+    IconManager::DrawIconAdd(drawList, ImVec2(bPos1.x + btnW * 0.5f, bPos1.y + btnH * 0.5f), 18.0f * g_dpiScale, IM_COL32(230, 230, 240, 255));
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Add stream source or webcam");
 
-    // Annotation / Draw mode
-    ImGui::SameLine(0, 8.0f * g_dpiScale);
+    // Control 2: Draw (Annotation mode)
+    ImGui::SameLine(0, btnSpacing);
+    ImVec2 bPos2 = ImGui::GetCursorScreenPos();
     ImGui::PushStyleColor(ImGuiCol_Button, g_state.isDrawMode ? ImVec4(0.36f, 0.14f, 0.18f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
-    if (ImGui::Button("Draw##dock_draw", ImVec2(48.0f * g_dpiScale, 32.0f * g_dpiScale))) {
+    if (ImGui::Button("##dock_draw", ImVec2(btnW, btnH))) {
         g_state.isDrawMode = !g_state.isDrawMode;
     }
     ImGui::PopStyleColor();
+    IconManager::DrawIconDraw(drawList, ImVec2(bPos2.x + btnW * 0.5f, bPos2.y + btnH * 0.5f), 18.0f * g_dpiScale, IM_COL32(230, 230, 240, 255));
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle Collaborative Real-time Screen Annotation");
 
-    // Screen Share
-    ImGui::SameLine(0, 8.0f * g_dpiScale);
-    if (ImGui::Button("Share##dock_share", ImVec2(52.0f * g_dpiScale, 32.0f * g_dpiScale))) {}
+    // Control 3: Share (Screen share)
+    ImGui::SameLine(0, btnSpacing);
+    ImVec2 bPos3 = ImGui::GetCursorScreenPos();
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
+    if (ImGui::Button("##dock_share", ImVec2(btnW, btnH))) {}
+    ImGui::PopStyleColor();
+    IconManager::DrawIconShare(drawList, ImVec2(bPos3.x + btnW * 0.5f, bPos3.y + btnH * 0.5f), 18.0f * g_dpiScale, IM_COL32(230, 230, 240, 255));
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Start / Stop Screen Sharing");
 
-    // Microphone toggle
-    ImGui::SameLine(0, 8.0f * g_dpiScale);
-    ImGui::PushStyleColor(ImGuiCol_Button, g_state.isMicMuted ? ImVec4(0.7f, 0.2f, 0.2f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
-    if (ImGui::Button(g_state.isMicMuted ? "Mic Off" : "Mic On", ImVec2(64.0f * g_dpiScale, 32.0f * g_dpiScale))) {
+    // Control 4: Mic (Microphone toggle)
+    ImGui::SameLine(0, btnSpacing);
+    ImVec2 bPos4 = ImGui::GetCursorScreenPos();
+    ImGui::PushStyleColor(ImGuiCol_Button, g_state.isMicMuted ? ImVec4(0.40f, 0.15f, 0.18f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
+    if (ImGui::Button("##dock_mic", ImVec2(btnW, btnH))) {
         g_state.isMicMuted = !g_state.isMicMuted;
     }
     ImGui::PopStyleColor();
+    IconManager::DrawIconMic(drawList, ImVec2(bPos4.x + btnW * 0.5f, bPos4.y + btnH * 0.5f), 18.0f * g_dpiScale, g_state.isMicMuted, IM_COL32(230, 230, 240, 255));
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip(g_state.isMicMuted ? "Unmute Microphone" : "Mute Microphone");
 
-    // Deafen toggle
-    ImGui::SameLine(0, 8.0f * g_dpiScale);
-    ImGui::PushStyleColor(ImGuiCol_Button, g_state.isAudioDeafened ? ImVec4(0.7f, 0.2f, 0.2f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
-    if (ImGui::Button(g_state.isAudioDeafened ? "Deaf" : "Audio", ImVec2(56.0f * g_dpiScale, 32.0f * g_dpiScale))) {
+    // Control 5: Audio (Deafen toggle)
+    ImGui::SameLine(0, btnSpacing);
+    ImVec2 bPos5 = ImGui::GetCursorScreenPos();
+    ImGui::PushStyleColor(ImGuiCol_Button, g_state.isAudioDeafened ? ImVec4(0.40f, 0.15f, 0.18f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
+    if (ImGui::Button("##dock_audio", ImVec2(btnW, btnH))) {
         g_state.isAudioDeafened = !g_state.isAudioDeafened;
     }
     ImGui::PopStyleColor();
+    IconManager::DrawIconAudio(drawList, ImVec2(bPos5.x + btnW * 0.5f, bPos5.y + btnH * 0.5f), 18.0f * g_dpiScale, g_state.isAudioDeafened, IM_COL32(230, 230, 240, 255));
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip(g_state.isAudioDeafened ? "Undeafen Audio" : "Deafen Audio");
 
-    // Disconnect
-    ImGui::SameLine(0, 8.0f * g_dpiScale);
+    // Control 6: End (Disconnect)
+    ImGui::SameLine(0, btnSpacing);
+    ImVec2 bPos6 = ImGui::GetCursorScreenPos();
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.48f, 0.16f, 0.20f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.15f, 0.18f, 1.0f));
-    if (ImGui::Button("End##dock_end", ImVec2(48.0f * g_dpiScale, 32.0f * g_dpiScale))) {
+    if (ImGui::Button("##dock_end", ImVec2(btnEndW, btnH))) {
         g_state.activeConnectedIp.clear();
         g_state.isStreaming = false;
+        for (auto& peer : g_state.peers) {
+            if (peer.status == PeerStatus::Online || peer.status == PeerStatus::Waiting) {
+                peer.status = PeerStatus::Offline;
+            }
+        }
+        SavePeers(g_state);
         g_state.currentTab = AppTab::Home;
     }
-    ImGui::PopStyleColor();
+    ImGui::PopStyleColor(2);
+    IconManager::DrawIconEnd(drawList, ImVec2(bPos6.x + btnEndW * 0.5f, bPos6.y + btnH * 0.5f), 18.0f * g_dpiScale, IM_COL32(250, 250, 255, 255));
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Disconnect / Leave Session");
 
     ImGui::PopStyleVar(2);
 }
