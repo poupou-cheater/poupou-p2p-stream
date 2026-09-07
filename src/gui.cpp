@@ -501,9 +501,30 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     float topAvatarSpacing = 10.0f * g_dpiScale;
     float topAvatarY = (headerHeight - (topAvatarRadius * 2.0f)) * 0.5f;
 
-    // Requirement 4: Strict horizontal left-to-right alignment in the topbar:
-    // * Position avatars of other active peers starting from x = 20px
-    float curX = 20.0f * g_dpiScale;
+    // Requirement 1: Calculate tab positions first so avatars can be aligned to the left of [ home ]
+    float navBtnHeight = 40.0f * g_dpiScale;
+    float paddingX = 22.0f * g_dpiScale;
+    float spacing = 10.0f * g_dpiScale;
+    float wHome = ImGui::CalcTextSize("home").x + paddingX * 2.0f;
+    float wConn = ImGui::CalcTextSize("current connection").x + paddingX * 2.0f;
+    float wSet  = ImGui::CalcTextSize("setting").x + paddingX * 2.0f;
+
+    float centerX = windowWidth * 0.5f;
+    float xConn = centerX - (wConn * 0.5f);
+    float homeX = xConn - spacing - wHome;
+    float xSet  = xConn + wConn + spacing;
+
+    // Group of avatars (active peers + "me") positioned to end right before [ home ]
+    float gapBeforeHome = 30.0f * g_dpiScale;
+    float avatarsEndX = homeX - gapBeforeHome;
+
+    int totalAvatarsCount = (int)activeTopPeers.size() + 1; // other active peers + "me"
+    float avatarsGroupWidth = totalAvatarsCount * (topAvatarRadius * 2.0f) + (totalAvatarsCount - 1) * topAvatarSpacing;
+
+    float curX = avatarsEndX - avatarsGroupWidth;
+    if (curX < 20.0f * g_dpiScale) {
+        curX = 20.0f * g_dpiScale;
+    }
 
     for (size_t i = 0; i < activeTopPeers.size(); ++i) {
         Peer* peer = activeTopPeers[i];
@@ -565,8 +586,8 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
         curX += topAvatarRadius * 2.0f + topAvatarSpacing;
     }
 
-    // * Place avatar "me" immediately following the other avatars
-    float meRadius = 18.0f * g_dpiScale;
+    // Place avatar "me" immediately following the peers (ending right before [ home ])
+    float meRadius = topAvatarRadius;
     float meY = (headerHeight - (meRadius * 2.0f)) * 0.5f;
     float meX = curX;
     ImVec2 meCenter(meX + meRadius, meY + meRadius);
@@ -603,33 +624,6 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
         ImGui::EndPopup();
     }
 
-    curX += meRadius * 2.0f;
-
-    // Requirement 1: Exact centering of "current connection" in the middle of the window:
-    // - Calculate window horizontal middle: float centerX = windowWidth * 0.5f;
-    // - Place central button "current connection" so its EXACT CENTER is at centerX.
-    // - Position "home" to its left and "setting" to its right with their respective spacing.
-    float navBtnHeight = 40.0f * g_dpiScale;
-    float paddingX = 22.0f * g_dpiScale;
-    float spacing = 10.0f * g_dpiScale;
-    float wHome = ImGui::CalcTextSize("home").x + paddingX * 2.0f;
-    float wConn = ImGui::CalcTextSize("current connection").x + paddingX * 2.0f;
-    float wSet  = ImGui::CalcTextSize("setting").x + paddingX * 2.0f;
-
-    float centerX = windowWidth * 0.5f;
-    float xConn = centerX - (wConn * 0.5f);
-    float xHome = xConn - spacing - wHome;
-    float xSet  = xConn + wConn + spacing;
-
-    // Requirement 4: Maintain a clear gap between the last avatar ("me") and [ home ]
-    float minGap = 20.0f * g_dpiScale;
-    if (xHome < curX + minGap) {
-        float shift = (curX + minGap) - xHome;
-        xHome += shift;
-        xConn += shift;
-        xSet  += shift;
-    }
-
     float navY = (headerHeight - navBtnHeight) * 0.5f;
 
     // Active pill color: #5c242e (exact wine/maroon tone from user's sketch)
@@ -642,7 +636,7 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(paddingX, 9.0f * g_dpiScale));
 
     // [ home ] tab button
-    ImGui::SetCursorPos(ImVec2(xHome, navY));
+    ImGui::SetCursorPos(ImVec2(homeX, navY));
     bool isHome = (g_state.currentTab == AppTab::Home);
     ImGui::PushStyleColor(ImGuiCol_Button, isHome ? activeTabColor : inactiveTabColor);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, isHome ? activeTabHover : inactiveTabHover);
@@ -678,7 +672,9 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PopStyleColor(3);
     ImGui::PopStyleVar(2);
 
-    // Requirement 5: System controls (Debug, Minimize, Maximize, Close) with dark capsule background
+    // Requirement 3: System controls (Debug, Minimize, Maximize, Close) with dark capsule on ForegroundDrawList
+    ImDrawList* fgDrawList = ImGui::GetForegroundDrawList();
+
     float btnSize = 34.0f * g_dpiScale;
     float btnGap = 4.0f * g_dpiScale;
     float sysControlsW = btnSize * 3.0f + btnGap * 2.0f;
@@ -704,9 +700,9 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImVec2 rectMin(headerStart.x + capX, headerStart.y + capY);
     ImVec2 rectMax(rectMin.x + capW, rectMin.y + capH);
 
-    // Dark translucent capsule pill background to guarantee crisp contrast over video stream
-    drawList->AddRectFilled(rectMin, rectMax, IM_COL32(24, 25, 28, 220), 12.0f * g_dpiScale);
-    drawList->AddRect(rectMin, rectMax, IM_COL32(55, 58, 70, 160), 12.0f * g_dpiScale, 0, 1.0f);
+    // Dark pill background on ForegroundDrawList (#18191c alpha 240 / opaque)
+    fgDrawList->AddRectFilled(rectMin, rectMax, IM_COL32(24, 25, 28, 240), 12.0f * g_dpiScale);
+    fgDrawList->AddRect(rectMin, rectMax, IM_COL32(55, 58, 70, 180), 12.0f * g_dpiScale, 0, 1.0f);
 
     float curRightX = capX + capPadX;
 
@@ -714,44 +710,57 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     // Debug toggle button
     float dbgY = (headerHeight - dbgBtnH) * 0.5f;
     ImGui::SetCursorPos(ImVec2(curRightX, dbgY));
-    ImGui::PushStyleColor(ImGuiCol_Button, g_debug.showDebugWindow ? ImVec4(0.48f, 0.20f, 0.25f, 1.0f) : ImVec4(0.14f, 0.15f, 0.20f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.58f, 0.24f, 0.32f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.38f, 0.40f, 0.55f, 0.8f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f * g_dpiScale);
-    if (ImGui::Button("🛠 Debug", ImVec2(dbgBtnW, dbgBtnH))) {
+    ImVec2 dbgScreenMin = ImGui::GetCursorScreenPos();
+    ImVec2 dbgScreenMax = ImVec2(dbgScreenMin.x + dbgBtnW, dbgScreenMin.y + dbgBtnH);
+
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0));
+    if (ImGui::Button("##top_dbg_btn", ImVec2(dbgBtnW, dbgBtnH))) {
         g_debug.showDebugWindow = !g_debug.showDebugWindow;
     }
-    ImGui::PopStyleVar();
+    bool dbgHovered = ImGui::IsItemHovered();
     ImGui::PopStyleColor(3);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle Debug & Simulation Tools (F12)");
+
+    ImU32 dbgBg = g_debug.showDebugWindow ? IM_COL32(122, 51, 64, 255) : (dbgHovered ? IM_COL32(48, 52, 68, 255) : IM_COL32(36, 38, 51, 255));
+    fgDrawList->AddRectFilled(dbgScreenMin, dbgScreenMax, dbgBg, 8.0f * g_dpiScale);
+    fgDrawList->AddRect(dbgScreenMin, dbgScreenMax, IM_COL32(97, 102, 140, 204), 8.0f * g_dpiScale, 0, 1.0f);
+    ImVec2 dbgTextSize = ImGui::CalcTextSize("🛠 Debug");
+    fgDrawList->AddText(ImVec2(dbgScreenMin.x + (dbgBtnW - dbgTextSize.x) * 0.5f, dbgScreenMin.y + (dbgBtnH - dbgTextSize.y) * 0.5f), IM_COL32(240, 242, 250, 255), "🛠 Debug");
+
+    if (dbgHovered) ImGui::SetTooltip("Toggle Debug & Simulation Tools (F12)");
 
     curRightX += dbgBtnW + dbgGap;
 #endif
 
     float sysY = (headerHeight - btnSize) * 0.5f;
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 7.0f * g_dpiScale);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
 
     // Minimize (─)
     ImGui::SetCursorPos(ImVec2(curRightX, sysY));
     ImVec2 minBtnPos = ImGui::GetCursorScreenPos();
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.2f, 0.22f, 0.28f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0));
     if (ImGui::Button("##btn_min", ImVec2(btnSize, btnSize))) {
         ShowWindow(hWnd, SW_MINIMIZE);
     }
-    ImGui::PopStyleColor(2);
-    // Draw ─ line
-    drawList->AddLine(ImVec2(minBtnPos.x + 9.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
-                      ImVec2(minBtnPos.x + btnSize - 9.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
-                      IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
+    bool minHovered = ImGui::IsItemHovered();
+    ImGui::PopStyleColor(3);
+
+    if (minHovered) {
+        fgDrawList->AddRectFilled(minBtnPos, ImVec2(minBtnPos.x + btnSize, minBtnPos.y + btnSize), IM_COL32(51, 56, 71, 255), 7.0f * g_dpiScale);
+    }
+    fgDrawList->AddLine(ImVec2(minBtnPos.x + 9.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
+                        ImVec2(minBtnPos.x + btnSize - 9.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
+                        IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
     curRightX += btnSize + btnGap;
 
     // Maximize / Restore (□)
     ImGui::SetCursorPos(ImVec2(curRightX, sysY));
     ImVec2 maxBtnPos = ImGui::GetCursorScreenPos();
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.2f, 0.22f, 0.28f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0));
     if (ImGui::Button("##btn_max", ImVec2(btnSize, btnSize))) {
         if (IsZoomed(hWnd)) {
             ShowWindow(hWnd, SW_RESTORE);
@@ -759,32 +768,40 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
             ShowWindow(hWnd, SW_MAXIMIZE);
         }
     }
-    ImGui::PopStyleColor(2);
-    // Draw □ square
+    bool maxHovered = ImGui::IsItemHovered();
+    ImGui::PopStyleColor(3);
+
+    if (maxHovered) {
+        fgDrawList->AddRectFilled(maxBtnPos, ImVec2(maxBtnPos.x + btnSize, maxBtnPos.y + btnSize), IM_COL32(51, 56, 71, 255), 7.0f * g_dpiScale);
+    }
     float boxPad = 9.0f * g_dpiScale;
-    drawList->AddRect(ImVec2(maxBtnPos.x + boxPad, maxBtnPos.y + boxPad),
-                      ImVec2(maxBtnPos.x + btnSize - boxPad, maxBtnPos.y + btnSize - boxPad),
-                      IM_COL32(220, 220, 230, 255), 1.0f, 0, 1.5f * g_dpiScale);
+    fgDrawList->AddRect(ImVec2(maxBtnPos.x + boxPad, maxBtnPos.y + boxPad),
+                        ImVec2(maxBtnPos.x + btnSize - boxPad, maxBtnPos.y + btnSize - boxPad),
+                        IM_COL32(220, 220, 230, 255), 1.0f, 0, 1.5f * g_dpiScale);
     curRightX += btnSize + btnGap;
 
     // Close (✕)
     ImGui::SetCursorPos(ImVec2(curRightX, sysY));
     ImVec2 closeBtnPos = ImGui::GetCursorScreenPos();
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.15f, 0.18f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0));
     if (ImGui::Button("##btn_close", ImVec2(btnSize, btnSize))) {
         PostMessage(hWnd, WM_CLOSE, 0, 0);
     }
-    ImGui::PopStyleColor(2);
-    // Draw ✕ cross
+    bool closeHovered = ImGui::IsItemHovered();
+    ImGui::PopStyleColor(3);
+
+    if (closeHovered) {
+        fgDrawList->AddRectFilled(closeBtnPos, ImVec2(closeBtnPos.x + btnSize, closeBtnPos.y + btnSize), IM_COL32(217, 38, 46, 255), 7.0f * g_dpiScale);
+    }
     float crossPad = 10.0f * g_dpiScale;
-    drawList->AddLine(ImVec2(closeBtnPos.x + crossPad, closeBtnPos.y + crossPad),
-                      ImVec2(closeBtnPos.x + btnSize - crossPad, closeBtnPos.y + btnSize - crossPad),
-                      IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
-    drawList->AddLine(ImVec2(closeBtnPos.x + btnSize - crossPad, closeBtnPos.y + crossPad),
-                      ImVec2(closeBtnPos.x + crossPad, closeBtnPos.y + btnSize - crossPad),
-                      IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
-    ImGui::PopStyleVar(2);
+    fgDrawList->AddLine(ImVec2(closeBtnPos.x + crossPad, closeBtnPos.y + crossPad),
+                        ImVec2(closeBtnPos.x + btnSize - crossPad, closeBtnPos.y + btnSize - crossPad),
+                        IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
+    fgDrawList->AddLine(ImVec2(closeBtnPos.x + btnSize - crossPad, closeBtnPos.y + crossPad),
+                        ImVec2(closeBtnPos.x + crossPad, closeBtnPos.y + btnSize - crossPad),
+                        IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
 
     ImGui::SetCursorPos(ImVec2(16.0f * g_dpiScale, headerHeight + 10.0f * g_dpiScale));
     ImGui::Dummy(ImVec2(0.0f, 0.0f));
@@ -1259,17 +1276,34 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
             ImVec2 bMin(bx, 0.0f);
             ImVec2 bMax(endX, cellH);
 
-            // 1. Container background (0 margins, 0 paddings, 100% full screen)
-            drawList->AddRectFilled(bMin, bMax, IM_COL32(12, 14, 18, 255));
+            // 1. Container background (black letterbox/pillarbox margins)
+            drawList->AddRectFilled(bMin, bMax, IM_COL32(0, 0, 0, 255));
 
             Peer* pPeer = (s < (int)participants.size()) ? participants[s].peerPtr : nullptr;
             bool isMe = (s < (int)participants.size()) ? participants[s].isMe : false;
 
-            // 2. Render Helldivers 2 video stream edge-to-edge
-            if (streamTex) {
-                drawList->AddImage((ImTextureID)streamTex, bMin, bMax, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), IM_COL32_WHITE);
+            // 2. Requirement 2: Native 16:9 aspect ratio preservation (No stretch)
+            float targetAspect = 16.0f / 9.0f;
+            float cellAspect = cellW / cellH;
+            ImVec2 renderSize;
+            if (cellAspect > targetAspect) {
+                renderSize.y = cellH;
+                renderSize.x = cellH * targetAspect;
             } else {
-                drawList->AddRectFilled(bMin, bMax, IM_COL32(20, 22, 28, 255));
+                renderSize.x = cellW;
+                renderSize.y = cellW / targetAspect;
+            }
+
+            // Center image in the container cell
+            float imgX = bx + (cellW - renderSize.x) * 0.5f;
+            float imgY = (cellH - renderSize.y) * 0.5f;
+            ImVec2 imgMin(imgX, imgY);
+            ImVec2 imgMax(imgX + renderSize.x, imgY + renderSize.y);
+
+            if (streamTex) {
+                drawList->AddImage((ImTextureID)streamTex, imgMin, imgMax, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), IM_COL32_WHITE);
+            } else {
+                drawList->AddRectFilled(imgMin, imgMax, IM_COL32(20, 22, 28, 255));
             }
 
             // 3. Subtle vertical separator line between contiguous streams
