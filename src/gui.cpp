@@ -485,8 +485,9 @@ static void RenderAvatar(const char* id, const char* label, bool isSpeaking, flo
 
 // Titlebar & Window Header matching the sketch
 static void RenderHeader(HWND hWnd, float windowWidth) {
+    ImGui::SetCursorPos(ImVec2(0.0f, 0.0f));
     ImDrawList* drawList = ImGui::GetWindowDrawList();
-    ImVec2 headerStart = ImGui::GetCursorScreenPos();
+    ImVec2 winPos = ImGui::GetWindowPos();
     float headerHeight = 74.0f * g_dpiScale;
 
     // Top-left: Display ONLY active peers (Waiting [Yellow] or Online [Green]).
@@ -535,10 +536,11 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
 
     for (size_t i = 0; i < activeTopPeers.size(); ++i) {
         Peer* peer = activeTopPeers[i];
-        ImVec2 center(curX + topAvatarRadius, topAvatarY + topAvatarRadius);
+        ImGui::SetCursorPos(ImVec2(curX, topAvatarY));
+        ImVec2 btnScreenPos = ImGui::GetCursorScreenPos();
+        ImVec2 center(btnScreenPos.x + topAvatarRadius, btnScreenPos.y + topAvatarRadius);
         std::string btnId = "##top_peer_" + std::to_string(i) + "_" + peer->name;
 
-        ImGui::SetCursorPos(ImVec2(curX, topAvatarY));
         ImGui::InvisibleButton(btnId.c_str(), ImVec2(topAvatarRadius * 2.0f, topAvatarRadius * 2.0f));
         bool isHovered = ImGui::IsItemHovered();
 
@@ -597,9 +599,11 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     float meRadius = topAvatarRadius;
     float meY = (headerHeight - (meRadius * 2.0f)) * 0.5f;
     float meX = curX;
-    ImVec2 meCenter(meX + meRadius, meY + meRadius);
 
     ImGui::SetCursorPos(ImVec2(meX, meY));
+    ImVec2 meScreenPos = ImGui::GetCursorScreenPos();
+    ImVec2 meCenter(meScreenPos.x + meRadius, meScreenPos.y + meRadius);
+
     ImGui::InvisibleButton("##top_me_avatar", ImVec2(meRadius * 2.0f, meRadius * 2.0f));
     bool meHovered = ImGui::IsItemHovered();
 
@@ -680,8 +684,8 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PopStyleVar(2);
     ImGui::SetWindowFontScale(1.0f); // Reset font scale back to nominal
 
-    // Requirement 2: Dynamic System controls pill on ForegroundDrawList
-    // Starts exactly before Debug if visible, or exactly before [ — ] if Debug is masked
+    // Requirement 1 & 2: Dynamic System controls pill on ForegroundDrawList
+    // Positioned using topY to guarantee it stays in the TopBar, englobing [ Debug ] [ — ] [ ▢ ] [ ✕ ]
     ImDrawList* fgDrawList = ImGui::GetForegroundDrawList();
 
     float btnSize = 34.0f * g_dpiScale;
@@ -691,13 +695,13 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     float capH = btnSize + capPadY * 2.0f;
     float rightMargin = 14.0f * g_dpiScale;
 
-    float sysControlsW = btnSize * 3.0f + btnGap * 2.0f;
+    float sysControlsW = btnSize * 3.0f + btnGap * 2.0f; // [ — ] [ ▢ ] [ ✕ ]
 
     bool isDebugVisible = false;
 #if defined(_DEBUG) || !defined(NDEBUG)
-    float dbgBtnW = 86.0f * g_dpiScale;
-    float dbgBtnH = 30.0f * g_dpiScale;
-    float dbgGap = 8.0f * g_dpiScale;
+    float dbgBtnW = 74.0f * g_dpiScale;
+    float dbgBtnH = 28.0f * g_dpiScale;
+    float dbgGap = 6.0f * g_dpiScale;
     isDebugVisible = g_debug.showDebugButton;
 #endif
 
@@ -710,9 +714,13 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
 
     float capW = visibleButtonsW + capPadX * 2.0f;
     float capX = windowWidth - rightMargin - capW;
-    float capY = (headerHeight - capH) * 0.5f;
+    float sysY = (headerHeight - btnSize) * 0.5f;
 
-    ImVec2 rectMin(headerStart.x + capX, headerStart.y + capY);
+    // Direct, absolute screen positioning aligned with topbar topY
+    float topY = winPos.y + sysY;
+    float pillScreenX = winPos.x + capX;
+    float pillScreenY = topY - capPadY;
+    ImVec2 rectMin(pillScreenX, pillScreenY);
     ImVec2 rectMax(rectMin.x + capW, rectMin.y + capH);
 
     // Dark pill background (#18191c alpha 240 / opaque)
@@ -739,18 +747,16 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
         ImGui::PopStyleColor(3);
 
         ImU32 dbgBg = g_debug.showDebugWindow ? IM_COL32(122, 51, 64, 255) : (dbgHovered ? IM_COL32(48, 52, 68, 255) : IM_COL32(36, 38, 51, 255));
-        fgDrawList->AddRectFilled(dbgScreenMin, dbgScreenMax, dbgBg, 8.0f * g_dpiScale);
-        fgDrawList->AddRect(dbgScreenMin, dbgScreenMax, IM_COL32(97, 102, 140, 204), 8.0f * g_dpiScale, 0, 1.0f);
-        ImVec2 dbgTextSize = ImGui::CalcTextSize("🛠 Debug");
-        fgDrawList->AddText(ImVec2(dbgScreenMin.x + (dbgBtnW - dbgTextSize.x) * 0.5f, dbgScreenMin.y + (dbgBtnH - dbgTextSize.y) * 0.5f), IM_COL32(240, 242, 250, 255), "🛠 Debug");
+        fgDrawList->AddRectFilled(dbgScreenMin, dbgScreenMax, dbgBg, 7.0f * g_dpiScale);
+        fgDrawList->AddRect(dbgScreenMin, dbgScreenMax, IM_COL32(97, 102, 140, 204), 7.0f * g_dpiScale, 0, 1.0f);
+        ImVec2 dbgTextSize = ImGui::CalcTextSize("Debug");
+        fgDrawList->AddText(ImVec2(dbgScreenMin.x + (dbgBtnW - dbgTextSize.x) * 0.5f, dbgScreenMin.y + (dbgBtnH - dbgTextSize.y) * 0.5f), IM_COL32(240, 242, 250, 255), "Debug");
 
         if (dbgHovered) ImGui::SetTooltip("Toggle Debug & Simulation Tools (F12)");
 
         curRightX += dbgBtnW + dbgGap;
     }
 #endif
-
-    float sysY = (headerHeight - btnSize) * 0.5f;
 
     // Minimize (─)
     ImGui::SetCursorPos(ImVec2(curRightX, sysY));

@@ -77,7 +77,7 @@ void SavePeers(const GuiState& state);
 
 #if defined(_DEBUG) || !defined(NDEBUG)
 struct DebugState {
-    bool showDebugButton = false; // Topbar debug button (default masked)
+    bool showDebugButton = true;  // Topbar debug button (visible by default)
     bool showDebugWindow = false; // Floating debug window (default hidden)
     int fakePeerCounter = 1;
     int simulatedStreamCount = 1; // 0 = avatars only, 1..4 = simulated video feeds grid
