@@ -383,7 +383,12 @@ void InitGui(HWND hWnd, Dx11Context& dx) {
             g_state.isMicSpeaking = true;
             for (auto& p : g_state.peers) p.isSpeaking = true;
         }
+        if (wcsstr(cmd, L"--show-debug") || wcsstr(cmd, L"--debug")) {
+            g_debug.showDebugButton = true;
+            g_debug.showDebugWindow = true;
+        }
         if (wcsstr(cmd, L"--hide-debug")) {
+            g_debug.showDebugButton = false;
             g_debug.showDebugWindow = false;
         }
 #endif
@@ -482,9 +487,8 @@ static void RenderAvatar(const char* id, const char* label, bool isSpeaking, flo
 static void RenderHeader(HWND hWnd, float windowWidth) {
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     ImVec2 headerStart = ImGui::GetCursorScreenPos();
-    float headerHeight = 70.0f * g_dpiScale;
+    float headerHeight = 74.0f * g_dpiScale;
 
-    // Requirement 4: Topbar enlargement (height 70px, unified 18px radius avatars, larger nav pills & window buttons)
     // Top-left: Display ONLY active peers (Waiting [Yellow] or Online [Green]).
     // "me" and disconnected/offline peers are NOT shown in activeTopPeers per user specification.
     std::vector<Peer*> activeTopPeers;
@@ -494,17 +498,20 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
         }
     }
 
-    // Requirement 1: Load default profile picture for avatar fallback
+    // Load default profile picture for avatar fallback
     ID3D11ShaderResourceView* defaultAvatarTex = IconManager::Get().GetImageTexture("ext/img/default profile picture.png");
 
-    float topAvatarRadius = 18.0f * g_dpiScale;
-    float topAvatarSpacing = 10.0f * g_dpiScale;
+    // Point 1: Avatar radius increased to 24px (diameter 48px)
+    float topAvatarRadius = 24.0f * g_dpiScale;
+    float topAvatarSpacing = 12.0f * g_dpiScale;
     float topAvatarY = (headerHeight - (topAvatarRadius * 2.0f)) * 0.5f;
 
-    // Requirement 1: Calculate tab positions first so avatars can be aligned to the left of [ home ]
-    float navBtnHeight = 40.0f * g_dpiScale;
-    float paddingX = 22.0f * g_dpiScale;
-    float spacing = 10.0f * g_dpiScale;
+    // Point 1: Enlarged tabs with 1.10x typography scale and larger padding
+    float navBtnHeight = 44.0f * g_dpiScale;
+    float paddingX = 26.0f * g_dpiScale;
+    float spacing = 12.0f * g_dpiScale;
+
+    ImGui::SetWindowFontScale(1.10f);
     float wHome = ImGui::CalcTextSize("home").x + paddingX * 2.0f;
     float wConn = ImGui::CalcTextSize("current connection").x + paddingX * 2.0f;
     float wSet  = ImGui::CalcTextSize("setting").x + paddingX * 2.0f;
@@ -514,8 +521,8 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     float homeX = xConn - spacing - wHome;
     float xSet  = xConn + wConn + spacing;
 
-    // Group of avatars (active peers + "me") positioned to end right before [ home ]
-    float gapBeforeHome = 30.0f * g_dpiScale;
+    // Point 1: Group of avatars (active peers + "me") positioned to end right before [ home ]
+    float gapBeforeHome = 32.0f * g_dpiScale;
     float avatarsEndX = homeX - gapBeforeHome;
 
     int totalAvatarsCount = (int)activeTopPeers.size() + 1; // other active peers + "me"
@@ -542,13 +549,13 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
         if (peer->status == PeerStatus::Waiting) {
             // Yellow waiting ring with soft pulse
             float pulse = 1.0f + 0.08f * sinf((float)ImGui::GetTime() * 4.0f);
-            drawList->AddCircle(center, topAvatarRadius * pulse, IM_COL32(255, 204, 0, 230), 32, 2.0f * g_dpiScale);
+            drawList->AddCircle(center, topAvatarRadius * pulse, IM_COL32(255, 204, 0, 230), 32, 2.2f * g_dpiScale);
         } else if (peer->status == PeerStatus::Online) {
             // Green speech ring ONLY when actively speaking
             if (peer->isSpeaking) {
-                drawList->AddCircle(center, topAvatarRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.2f * g_dpiScale);
+                drawList->AddCircle(center, topAvatarRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.5f * g_dpiScale);
                 float glow = 2.0f + 1.5f * sinf((float)ImGui::GetTime() * 6.0f);
-                drawList->AddCircle(center, topAvatarRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.5f * g_dpiScale);
+                drawList->AddCircle(center, topAvatarRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.8f * g_dpiScale);
             }
             // When silent: NO border or colored contour
         }
@@ -601,9 +608,9 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
 
     // Speech glowing green ring ONLY when speaking
     if (g_state.isMicSpeaking) {
-        drawList->AddCircle(meCenter, meRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.2f * g_dpiScale);
+        drawList->AddCircle(meCenter, meRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.5f * g_dpiScale);
         float glow = 2.0f + 1.5f * sinf((float)ImGui::GetTime() * 6.0f);
-        drawList->AddCircle(meCenter, meRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.5f * g_dpiScale);
+        drawList->AddCircle(meCenter, meRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.8f * g_dpiScale);
     }
     // When silent: NO colored ring or contour
 
@@ -632,8 +639,8 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImVec4 inactiveTabColor = ImVec4(0.094f, 0.098f, 0.118f, 1.00f);
     ImVec4 inactiveTabHover = ImVec4(0.145f, 0.153f, 0.188f, 1.00f);
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 20.0f * g_dpiScale);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(paddingX, 9.0f * g_dpiScale));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 22.0f * g_dpiScale);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(paddingX, 10.0f * g_dpiScale));
 
     // [ home ] tab button
     ImGui::SetCursorPos(ImVec2(homeX, navY));
@@ -671,66 +678,76 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     }
     ImGui::PopStyleColor(3);
     ImGui::PopStyleVar(2);
+    ImGui::SetWindowFontScale(1.0f); // Reset font scale back to nominal
 
-    // Requirement 3: System controls (Debug, Minimize, Maximize, Close) with dark capsule on ForegroundDrawList
+    // Requirement 2: Dynamic System controls pill on ForegroundDrawList
+    // Starts exactly before Debug if visible, or exactly before [ — ] if Debug is masked
     ImDrawList* fgDrawList = ImGui::GetForegroundDrawList();
 
     float btnSize = 34.0f * g_dpiScale;
     float btnGap = 4.0f * g_dpiScale;
+    float capPadX = 6.0f * g_dpiScale;
+    float capPadY = 4.0f * g_dpiScale;
+    float capH = btnSize + capPadY * 2.0f;
+    float rightMargin = 14.0f * g_dpiScale;
+
     float sysControlsW = btnSize * 3.0f + btnGap * 2.0f;
 
+    bool isDebugVisible = false;
 #if defined(_DEBUG) || !defined(NDEBUG)
     float dbgBtnW = 86.0f * g_dpiScale;
     float dbgBtnH = 30.0f * g_dpiScale;
     float dbgGap = 8.0f * g_dpiScale;
-    float totalRightW = dbgBtnW + dbgGap + sysControlsW;
-#else
-    float totalRightW = sysControlsW;
+    isDebugVisible = g_debug.showDebugButton;
 #endif
 
-    float capPadX = 6.0f * g_dpiScale;
-    float capPadY = 4.0f * g_dpiScale;
-    float capH = btnSize + capPadY * 2.0f;
-    float capW = totalRightW + capPadX * 2.0f;
-    float rightMargin = 14.0f * g_dpiScale;
+    float visibleButtonsW = sysControlsW;
+#if defined(_DEBUG) || !defined(NDEBUG)
+    if (isDebugVisible) {
+        visibleButtonsW += dbgBtnW + dbgGap;
+    }
+#endif
 
+    float capW = visibleButtonsW + capPadX * 2.0f;
     float capX = windowWidth - rightMargin - capW;
     float capY = (headerHeight - capH) * 0.5f;
 
     ImVec2 rectMin(headerStart.x + capX, headerStart.y + capY);
     ImVec2 rectMax(rectMin.x + capW, rectMin.y + capH);
 
-    // Dark pill background on ForegroundDrawList (#18191c alpha 240 / opaque)
+    // Dark pill background (#18191c alpha 240 / opaque)
     fgDrawList->AddRectFilled(rectMin, rectMax, IM_COL32(24, 25, 28, 240), 12.0f * g_dpiScale);
     fgDrawList->AddRect(rectMin, rectMax, IM_COL32(55, 58, 70, 180), 12.0f * g_dpiScale, 0, 1.0f);
 
     float curRightX = capX + capPadX;
 
 #if defined(_DEBUG) || !defined(NDEBUG)
-    // Debug toggle button
-    float dbgY = (headerHeight - dbgBtnH) * 0.5f;
-    ImGui::SetCursorPos(ImVec2(curRightX, dbgY));
-    ImVec2 dbgScreenMin = ImGui::GetCursorScreenPos();
-    ImVec2 dbgScreenMax = ImVec2(dbgScreenMin.x + dbgBtnW, dbgScreenMin.y + dbgBtnH);
+    if (isDebugVisible) {
+        // Debug toggle button
+        float dbgY = (headerHeight - dbgBtnH) * 0.5f;
+        ImGui::SetCursorPos(ImVec2(curRightX, dbgY));
+        ImVec2 dbgScreenMin = ImGui::GetCursorScreenPos();
+        ImVec2 dbgScreenMax = ImVec2(dbgScreenMin.x + dbgBtnW, dbgScreenMin.y + dbgBtnH);
 
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0));
-    if (ImGui::Button("##top_dbg_btn", ImVec2(dbgBtnW, dbgBtnH))) {
-        g_debug.showDebugWindow = !g_debug.showDebugWindow;
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0));
+        if (ImGui::Button("##top_dbg_btn", ImVec2(dbgBtnW, dbgBtnH))) {
+            g_debug.showDebugWindow = !g_debug.showDebugWindow;
+        }
+        bool dbgHovered = ImGui::IsItemHovered();
+        ImGui::PopStyleColor(3);
+
+        ImU32 dbgBg = g_debug.showDebugWindow ? IM_COL32(122, 51, 64, 255) : (dbgHovered ? IM_COL32(48, 52, 68, 255) : IM_COL32(36, 38, 51, 255));
+        fgDrawList->AddRectFilled(dbgScreenMin, dbgScreenMax, dbgBg, 8.0f * g_dpiScale);
+        fgDrawList->AddRect(dbgScreenMin, dbgScreenMax, IM_COL32(97, 102, 140, 204), 8.0f * g_dpiScale, 0, 1.0f);
+        ImVec2 dbgTextSize = ImGui::CalcTextSize("🛠 Debug");
+        fgDrawList->AddText(ImVec2(dbgScreenMin.x + (dbgBtnW - dbgTextSize.x) * 0.5f, dbgScreenMin.y + (dbgBtnH - dbgTextSize.y) * 0.5f), IM_COL32(240, 242, 250, 255), "🛠 Debug");
+
+        if (dbgHovered) ImGui::SetTooltip("Toggle Debug & Simulation Tools (F12)");
+
+        curRightX += dbgBtnW + dbgGap;
     }
-    bool dbgHovered = ImGui::IsItemHovered();
-    ImGui::PopStyleColor(3);
-
-    ImU32 dbgBg = g_debug.showDebugWindow ? IM_COL32(122, 51, 64, 255) : (dbgHovered ? IM_COL32(48, 52, 68, 255) : IM_COL32(36, 38, 51, 255));
-    fgDrawList->AddRectFilled(dbgScreenMin, dbgScreenMax, dbgBg, 8.0f * g_dpiScale);
-    fgDrawList->AddRect(dbgScreenMin, dbgScreenMax, IM_COL32(97, 102, 140, 204), 8.0f * g_dpiScale, 0, 1.0f);
-    ImVec2 dbgTextSize = ImGui::CalcTextSize("🛠 Debug");
-    fgDrawList->AddText(ImVec2(dbgScreenMin.x + (dbgBtnW - dbgTextSize.x) * 0.5f, dbgScreenMin.y + (dbgBtnH - dbgTextSize.y) * 0.5f), IM_COL32(240, 242, 250, 255), "🛠 Debug");
-
-    if (dbgHovered) ImGui::SetTooltip("Toggle Debug & Simulation Tools (F12)");
-
-    curRightX += dbgBtnW + dbgGap;
 #endif
 
     float sysY = (headerHeight - btnSize) * 0.5f;
@@ -1019,7 +1036,7 @@ static void RenderHomeView(float contentWidth, float contentHeight) {
     float addBarStartX = (contentWidth - addBarWidth) * 0.5f;
 
     // Position of the top add bar
-    float startY = 70.0f * g_dpiScale + padTop;
+    float startY = 74.0f * g_dpiScale + padTop;
     ImGui::SetCursorPos(ImVec2(addBarStartX, startY));
 
     // Container box around the add bar
@@ -1085,7 +1102,7 @@ static void RenderHomeView(float contentWidth, float contentHeight) {
 
     // 2. Large Rounded Container for Saved Connections (Centered & Harmonious!)
     float containerY = startY + addBoxHeight + gapY;
-    float totalWindowHeight = contentHeight + 70.0f * g_dpiScale;
+    float totalWindowHeight = contentHeight + 74.0f * g_dpiScale;
     float containerHeight = totalWindowHeight - containerY - padBottom;
     if (containerHeight < 160.0f * g_dpiScale) containerHeight = 160.0f * g_dpiScale;
 
@@ -1213,7 +1230,7 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
                          io.MousePos.y <= dockMax.y + 10.0f * g_dpiScale &&
                          io.MousePos.x >= dockMin.x - 10.0f * g_dpiScale && 
                          io.MousePos.x <= dockMax.x + 10.0f * g_dpiScale);
-        bool overHeader = (io.MousePos.y <= 70.0f * g_dpiScale);
+        bool overHeader = (io.MousePos.y <= 74.0f * g_dpiScale);
 
         if (totalWidth > windowWidth) {
             // Drag & Slide via mouse left button
@@ -1738,6 +1755,7 @@ static void RenderSettingsView(float contentWidth, float contentHeight) {
         ImGui::Spacing();
 
         ImGui::Checkbox("Show Floating Debug Window (Hotkey: F12)", &g_debug.showDebugWindow);
+        ImGui::Checkbox("Show Topbar Debug Button", &g_debug.showDebugButton);
         ImGui::Spacing();
 
         ImGui::Text("Simulated Video Stream Grid (Current Connection Tab):");
@@ -2103,7 +2121,7 @@ void RenderGui(HWND hWnd, Dx11Context& dx) {
         // Standard header for Home and Settings
         RenderHeader(hWnd, windowWidth);
         float contentWidth = windowWidth;
-        float contentHeight = windowHeight - 70.0f * g_dpiScale;
+        float contentHeight = windowHeight - 74.0f * g_dpiScale;
         if (g_state.currentTab == AppTab::Home) {
             RenderHomeView(contentWidth, contentHeight);
         } else if (g_state.currentTab == AppTab::Setting) {

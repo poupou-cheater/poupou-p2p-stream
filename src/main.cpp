@@ -102,8 +102,8 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         // Invisible Titlebar Drag Area:
-        // Grab band behind navigation in top header (height ~70px scaled with DPI)
-        int headerHeightPx = (int)(70.0f * g_dpiScale);
+        // Grab band behind navigation in top header (height ~74px scaled with DPI)
+        int headerHeightPx = (int)(74.0f * g_dpiScale);
         if (pt.y >= rc.top && pt.y < rc.top + headerHeightPx) {
             if (ImGui::GetCurrentContext() != nullptr) {
                 // If cursor is NOT hovering an active ImGui widget (buttons, inputs), treat as caption for instant drag
