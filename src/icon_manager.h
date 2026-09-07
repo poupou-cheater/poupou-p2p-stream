@@ -19,6 +19,12 @@ public:
     // Load or retrieve an SVG rasterized to DX11 texture
     ID3D11ShaderResourceView* GetSvgTexture(const std::string& svgPath, int width, int height);
 
+    // Resolve an SVG filename to an existing physical path in icons/ or ext/icon/
+    std::string ResolveSvgPath(const std::string& filename);
+
+    // Draw an SVG icon directly loaded from disk
+    void DrawSvgIcon(ImDrawList* drawList, const std::string& svgFilename, ImVec2 center, float size, ImU32 tintColor = IM_COL32(255, 255, 255, 255));
+
     // Vector drawing helpers for pixel-perfect Dear ImGui rendering
     static void DrawStar(ImDrawList* drawList, ImVec2 center, float radius, bool filled, ImU32 color, float thickness = 1.4f);
     static void DrawStatusIndicator(ImDrawList* drawList, ImVec2 center, float radius, PeerStatus status, bool pulse = true);

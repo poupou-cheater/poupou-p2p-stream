@@ -683,10 +683,11 @@ static void RenderPeerCard(Peer& peer, int index, float cardWidth) {
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(3);
 
-    // Draw crisp star icon centered over the button
+    // Draw crisp star icon centered over the button using physical SVG
     ImVec2 starCenter = ImVec2(starBtnPos.x + starBtnSize * 0.5f, elemY + elemHeight * 0.5f);
-    ImU32 starColor = peer.isFavorite ? IM_COL32(255, 204, 0, 255) : IM_COL32(120, 124, 138, 255);
-    IconManager::DrawStar(drawList, starCenter, 8.0f * g_dpiScale, peer.isFavorite, starColor, 1.4f * g_dpiScale);
+    ImU32 starColor = peer.isFavorite ? IM_COL32(255, 204, 0, 255) : IM_COL32(130, 134, 150, 255);
+    const char* starSvg = peer.isFavorite ? "MaterialSymbolsLightStarRate_full.svg" : "MaterialSymbolsLightStarOutlineRounded_empty.svg";
+    IconManager::Get().DrawSvgIcon(drawList, starSvg, starCenter, 20.0f * g_dpiScale, starColor);
 
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip(peer.isFavorite ? "Remove from favorites" : "Add to favorites (moves to top)");
@@ -943,18 +944,23 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
         float topY = 78.0f * g_dpiScale;
         float bottomY = windowHeight - 96.0f * g_dpiScale;
         float availHeight = bottomY - topY;
-        float centerY = topY + availHeight * 0.46f;
 
-        float badgeSpace = 48.0f * g_dpiScale;
-        float maxRadiusY = (availHeight - badgeSpace) * 0.5f;
+        // Safety margin of 18px top and bottom to aerate space between topbar and dockbar
+        float safetyPad = 18.0f * g_dpiScale;
+        float badgeSpace = 44.0f * g_dpiScale;
+        float maxRadiusY = (availHeight - badgeSpace - safetyPad * 2.0f) * 0.5f;
 
         float spacing = 34.0f * g_dpiScale;
-        float availWidth = windowWidth - 80.0f * g_dpiScale;
+        float availWidth = windowWidth - 100.0f * g_dpiScale;
         float maxRadiusX = ((availWidth - (N - 1) * spacing) / N) * 0.5f;
 
-        // Maximize circle radius so avatars take significant presence without clipping topbar or dock
+        // Maximize circle radius with safety cushion so avatars don't touch topbar or bottom dock
         float baseRadius = fminf(maxRadiusY, maxRadiusX);
-        if (baseRadius < 48.0f * g_dpiScale) baseRadius = 48.0f * g_dpiScale;
+        if (baseRadius < 44.0f * g_dpiScale) baseRadius = 44.0f * g_dpiScale;
+
+        // Centered vertically with safety padding
+        float totalContentH = 2.0f * baseRadius + badgeSpace;
+        float centerY = topY + safetyPad + (availHeight - safetyPad * 2.0f - totalContentH) * 0.5f + baseRadius;
 
         float totalWidth = N * (2.0f * baseRadius) + (N - 1) * spacing;
         float startX = (windowWidth - totalWidth) * 0.5f + baseRadius;
@@ -1064,7 +1070,7 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
                 ImVec2 mCenter(center.x + baseRadius * 0.707f, center.y - baseRadius * 0.707f);
                 drawList->AddCircleFilled(mCenter, 14.0f * g_dpiScale, IM_COL32(22, 24, 32, 255), 24);
                 drawList->AddCircle(mCenter, 14.0f * g_dpiScale, IM_COL32(255, 75, 75, 220), 24, 1.5f * g_dpiScale);
-                IconManager::DrawIconMic(drawList, mCenter, 16.0f * g_dpiScale, true, IM_COL32(255, 75, 75, 255));
+                IconManager::Get().DrawSvgIcon(drawList, "MdiMicrophoneOff.svg", mCenter, 16.0f * g_dpiScale, IM_COL32(255, 75, 75, 255));
             }
 
             // G. Pill badge below bubble
@@ -1118,59 +1124,71 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.0f * g_dpiScale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
 
-    // Control 1: [+] Screen / Window with Plus inside (per sketch #1)
+    // Control 1: [+] Screen / Window with Plus inside (MaterialSymbolsAddPhotoAlternate.svg per sketch #1)
     ImVec2 bPos1 = ImGui::GetCursorScreenPos();
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
     if (ImGui::Button("##dock_screen_plus", ImVec2(btnW, btnH))) {}
+    bool hovered1 = ImGui::IsItemHovered();
     ImGui::PopStyleColor();
-    IconManager::DrawIconScreenPlus(drawList, ImVec2(bPos1.x + btnW * 0.5f, bPos1.y + btnH * 0.5f), 22.0f * g_dpiScale, IM_COL32(230, 230, 240, 255));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Add stream source or webcam window");
+    ImU32 col1 = hovered1 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255);
+    IconManager::Get().DrawSvgIcon(drawList, "MaterialSymbolsAddPhotoAlternate.svg", ImVec2(bPos1.x + btnW * 0.5f, bPos1.y + btnH * 0.5f), 24.0f * g_dpiScale, col1);
+    if (hovered1) ImGui::SetTooltip("Add stream source or webcam window");
 
-    // Control 2: Slanted Paintbrush / Annotation (per sketch #2)
+    // Control 2: Slanted Paintbrush / Annotation (BoxiconsBrushFilled.svg per sketch #2)
     ImGui::SameLine(0, btnSpacing);
     ImVec2 bPos2 = ImGui::GetCursorScreenPos();
     ImGui::PushStyleColor(ImGuiCol_Button, g_state.isDrawMode ? ImVec4(0.36f, 0.14f, 0.18f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
     if (ImGui::Button("##dock_paintbrush", ImVec2(btnW, btnH))) {
         g_state.isDrawMode = !g_state.isDrawMode;
     }
+    bool hovered2 = ImGui::IsItemHovered();
     ImGui::PopStyleColor();
-    IconManager::DrawIconPaintbrush(drawList, ImVec2(bPos2.x + btnW * 0.5f, bPos2.y + btnH * 0.5f), 22.0f * g_dpiScale, IM_COL32(230, 230, 240, 255));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle Collaborative Real-time Screen Annotation (Paintbrush)");
+    ImU32 col2 = g_state.isDrawMode ? IM_COL32(255, 120, 140, 255) : (hovered2 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
+    IconManager::Get().DrawSvgIcon(drawList, "BoxiconsBrushFilled.svg", ImVec2(bPos2.x + btnW * 0.5f, bPos2.y + btnH * 0.5f), 24.0f * g_dpiScale, col2);
+    if (hovered2) ImGui::SetTooltip("Toggle Collaborative Real-time Screen Annotation (Paintbrush)");
 
-    // Control 3: Arrow cursor in rounded square "show cursor on the other screen" (per sketch #3)
+    // Control 3: Arrow cursor in rounded square "show cursor on the other screen" (TablerPointer2.svg per sketch #3)
     ImGui::SameLine(0, btnSpacing);
     ImVec2 bPos3 = ImGui::GetCursorScreenPos();
-    ImGui::PushStyleColor(ImGuiCol_Button, g_state.showCursorOnOtherScreen ? ImVec4(0.36f, 0.14f, 0.18f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, g_state.showCursorOnOtherScreen ? ImVec4(0.18f, 0.28f, 0.40f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
     if (ImGui::Button("##dock_cursor_screen", ImVec2(btnW, btnH))) {
         g_state.showCursorOnOtherScreen = !g_state.showCursorOnOtherScreen;
     }
+    bool hovered3 = ImGui::IsItemHovered();
     ImGui::PopStyleColor();
-    IconManager::DrawIconCursorScreen(drawList, ImVec2(bPos3.x + btnW * 0.5f, bPos3.y + btnH * 0.5f), 22.0f * g_dpiScale, IM_COL32(230, 230, 240, 255));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip(g_state.showCursorOnOtherScreen ? "Hide cursor on the other screen" : "Show cursor on the other screen");
+    ImU32 col3 = g_state.showCursorOnOtherScreen ? IM_COL32(100, 180, 255, 255) : (hovered3 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
+    IconManager::Get().DrawSvgIcon(drawList, "TablerPointer2.svg", ImVec2(bPos3.x + btnW * 0.5f, bPos3.y + btnH * 0.5f), 24.0f * g_dpiScale, col3);
+    if (hovered3) ImGui::SetTooltip(g_state.showCursorOnOtherScreen ? "Hide cursor on the other screen" : "Show cursor on the other screen");
 
-    // Control 4: Classic Microphone (per sketch #4)
+    // Control 4: Classic Microphone (MdiMicrophone.svg / MdiMicrophoneOff.svg per sketch #4)
     ImGui::SameLine(0, btnSpacing);
     ImVec2 bPos4 = ImGui::GetCursorScreenPos();
     ImGui::PushStyleColor(ImGuiCol_Button, g_state.isMicMuted ? ImVec4(0.40f, 0.15f, 0.18f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
     if (ImGui::Button("##dock_mic", ImVec2(btnW, btnH))) {
         g_state.isMicMuted = !g_state.isMicMuted;
     }
+    bool hovered4 = ImGui::IsItemHovered();
     ImGui::PopStyleColor();
-    IconManager::DrawIconMic(drawList, ImVec2(bPos4.x + btnW * 0.5f, bPos4.y + btnH * 0.5f), 22.0f * g_dpiScale, g_state.isMicMuted, IM_COL32(230, 230, 240, 255));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip(g_state.isMicMuted ? "Unmute Microphone" : "Mute Microphone");
+    const char* micSvg = g_state.isMicMuted ? "MdiMicrophoneOff.svg" : "MdiMicrophone.svg";
+    ImU32 col4 = g_state.isMicMuted ? IM_COL32(255, 80, 80, 255) : (hovered4 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
+    IconManager::Get().DrawSvgIcon(drawList, micSvg, ImVec2(bPos4.x + btnW * 0.5f, bPos4.y + btnH * 0.5f), 24.0f * g_dpiScale, col4);
+    if (hovered4) ImGui::SetTooltip(g_state.isMicMuted ? "Unmute Microphone" : "Mute Microphone");
 
-    // Control 5: Audio Headphones (per sketch #5)
+    // Control 5: Audio Headphones (IcBaselineHeadset.svg / IcBaselineHeadsetOff.svg per sketch #5)
     ImGui::SameLine(0, btnSpacing);
     ImVec2 bPos5 = ImGui::GetCursorScreenPos();
     ImGui::PushStyleColor(ImGuiCol_Button, g_state.isAudioDeafened ? ImVec4(0.40f, 0.15f, 0.18f, 1.0f) : ImVec4(0.12f, 0.13f, 0.17f, 1.0f));
     if (ImGui::Button("##dock_audio", ImVec2(btnW, btnH))) {
         g_state.isAudioDeafened = !g_state.isAudioDeafened;
     }
+    bool hovered5 = ImGui::IsItemHovered();
     ImGui::PopStyleColor();
-    IconManager::DrawIconAudio(drawList, ImVec2(bPos5.x + btnW * 0.5f, bPos5.y + btnH * 0.5f), 22.0f * g_dpiScale, g_state.isAudioDeafened, IM_COL32(230, 230, 240, 255));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip(g_state.isAudioDeafened ? "Undeafen Audio" : "Deafen Audio");
+    const char* audioSvg = g_state.isAudioDeafened ? "IcBaselineHeadsetOff.svg" : "IcBaselineHeadset.svg";
+    ImU32 col5 = g_state.isAudioDeafened ? IM_COL32(255, 80, 80, 255) : (hovered5 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
+    IconManager::Get().DrawSvgIcon(drawList, audioSvg, ImVec2(bPos5.x + btnW * 0.5f, bPos5.y + btnH * 0.5f), 24.0f * g_dpiScale, col5);
+    if (hovered5) ImGui::SetTooltip(g_state.isAudioDeafened ? "Undeafen Audio" : "Deafen Audio");
 
-    // Control 6: Phone Receiver with 'x' (Disconnect) (per sketch #6)
+    // Control 6: Phone Receiver with 'x' (MaterialSymbolsPhoneCancelSharp.svg per sketch #6)
     ImGui::SameLine(0, btnSpacing);
     ImVec2 bPos6 = ImGui::GetCursorScreenPos();
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.48f, 0.16f, 0.20f, 1.0f));
@@ -1186,9 +1204,11 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
         SavePeers(g_state);
         g_state.currentTab = AppTab::Home;
     }
+    bool hovered6 = ImGui::IsItemHovered();
     ImGui::PopStyleColor(2);
-    IconManager::DrawIconPhoneHangup(drawList, ImVec2(bPos6.x + btnEndW * 0.5f, bPos6.y + btnH * 0.5f), 22.0f * g_dpiScale, IM_COL32(250, 250, 255, 255));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Disconnect / Leave Session");
+    ImU32 col6 = hovered6 ? IM_COL32(255, 255, 255, 255) : IM_COL32(250, 240, 245, 255);
+    IconManager::Get().DrawSvgIcon(drawList, "MaterialSymbolsPhoneCancelSharp.svg", ImVec2(bPos6.x + btnEndW * 0.5f, bPos6.y + btnH * 0.5f), 24.0f * g_dpiScale, col6);
+    if (hovered6) ImGui::SetTooltip("Disconnect / Leave Session");
 
     ImGui::PopStyleVar(2);
 
@@ -1213,9 +1233,12 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     if (ImGui::Button("##dock_vol", ImVec2(rBtnW, rBtnH))) {
         ImGui::OpenPopup("##volume_popover");
     }
+    bool hoveredVol = ImGui::IsItemHovered();
     ImGui::PopStyleColor();
-    IconManager::DrawIconVolume(drawList, ImVec2(rvPos.x + rBtnW * 0.5f, rvPos.y + rBtnH * 0.5f), 18.0f * g_dpiScale, IM_COL32(230, 230, 240, 255));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Master Stream Audio Volume (%.0f%%)", g_state.streamVolume * 100.0f);
+    const char* volSvg = (g_state.streamVolume <= 0.01f) ? "MaterialSymbolsNoSound.svg" : "MaterialSymbolsVolumeDown.svg";
+    ImU32 colVol = hoveredVol ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255);
+    IconManager::Get().DrawSvgIcon(drawList, volSvg, ImVec2(rvPos.x + rBtnW * 0.5f, rvPos.y + rBtnH * 0.5f), 20.0f * g_dpiScale, colVol);
+    if (hoveredVol) ImGui::SetTooltip("Master Stream Audio Volume (%.0f%%)", g_state.streamVolume * 100.0f);
 
     if (ImGui::BeginPopup("##volume_popover")) {
         ImGui::Text("Master Volume");
@@ -1230,9 +1253,12 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     if (ImGui::Button("##dock_fullscreen", ImVec2(rBtnW, rBtnH))) {
         g_state.isFullscreen = !g_state.isFullscreen;
     }
+    bool hoveredFs = ImGui::IsItemHovered();
     ImGui::PopStyleColor();
-    IconManager::DrawIconFullscreen(drawList, ImVec2(rfPos.x + rBtnW * 0.5f, rfPos.y + rBtnH * 0.5f), 18.0f * g_dpiScale, IM_COL32(230, 230, 240, 255));
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle Fullscreen");
+    const char* fsSvg = g_state.isFullscreen ? "MaterialSymbolsFullscreenExit.svg" : "MaterialSymbolsFullscreen.svg";
+    ImU32 colFs = hoveredFs ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255);
+    IconManager::Get().DrawSvgIcon(drawList, fsSvg, ImVec2(rfPos.x + rBtnW * 0.5f, rfPos.y + rBtnH * 0.5f), 20.0f * g_dpiScale, colFs);
+    if (hoveredFs) ImGui::SetTooltip("Toggle Fullscreen");
 
     ImGui::PopStyleVar(2);
 }

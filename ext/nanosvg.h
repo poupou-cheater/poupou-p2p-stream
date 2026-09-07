@@ -1335,6 +1335,8 @@ NSVGNamedColor nsvg__colors[] = {
 	{ "grey", NSVG_RGB(128, 128, 128) },
 	{ "gray", NSVG_RGB(128, 128, 128) },
 	{ "white", NSVG_RGB(255, 255, 255) },
+	{ "currentColor", NSVG_RGB(255, 255, 255) },
+	{ "currentcolor", NSVG_RGB(255, 255, 255) },
 
 #ifdef NANOSVG_ALL_COLOR_KEYWORDS
 	{ "aliceblue", NSVG_RGB(240, 248, 255) },
@@ -1482,12 +1484,12 @@ static unsigned int nsvg__parseColorName(const char* str)
 	int i, ncolors = sizeof(nsvg__colors) / sizeof(NSVGNamedColor);
 
 	for (i = 0; i < ncolors; i++) {
-		if (strcmp(nsvg__colors[i].name, str) == 0) {
+		if (_stricmp(nsvg__colors[i].name, str) == 0) {
 			return nsvg__colors[i].color;
 		}
 	}
 
-	return NSVG_RGB(128, 128, 128);
+	return NSVG_RGB(255, 255, 255);
 }
 
 static unsigned int nsvg__parseColor(const char* str)

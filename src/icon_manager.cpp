@@ -28,6 +28,75 @@ void IconManager::Cleanup() {
     m_device = nullptr;
 }
 
+#include <windows.h>
+
+std::string IconManager::ResolveSvgPath(const std::string& filename) {
+    // 1. Direct path check
+    DWORD attr = GetFileAttributesA(filename.c_str());
+    if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+        return filename;
+    }
+
+    // 2. Relative search locations
+    const char* searchPrefixes[] = {
+        "icons/",
+        "ext/icon/",
+        "../icons/",
+        "../ext/icon/",
+        "../../icons/",
+        "../../ext/icon/"
+    };
+    for (const char* prefix : searchPrefixes) {
+        std::string candidate = prefix + filename;
+        attr = GetFileAttributesA(candidate.c_str());
+        if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+            return candidate;
+        }
+    }
+
+    // 3. Search relative to executable directory
+    char exePath[MAX_PATH] = { 0 };
+    if (GetModuleFileNameA(NULL, exePath, MAX_PATH) > 0) {
+        char* lastSlash = strrchr(exePath, '\\');
+        if (!lastSlash) lastSlash = strrchr(exePath, '/');
+        if (lastSlash) {
+            *lastSlash = '\0';
+            std::string exeDir = exePath;
+            const char* subDirs[] = {
+                "/icons/",
+                "/ext/icon/",
+                "/../../icons/",
+                "/../../ext/icon/",
+                "/../icons/",
+                "/../ext/icon/"
+            };
+            for (const char* sub : subDirs) {
+                std::string cand = exeDir + sub + filename;
+                attr = GetFileAttributesA(cand.c_str());
+                if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+                    return cand;
+                }
+            }
+        }
+    }
+
+    return "icons/" + filename;
+}
+
+void IconManager::DrawSvgIcon(ImDrawList* drawList, const std::string& svgFilename, ImVec2 center, float size, ImU32 tintColor) {
+    if (!drawList || size <= 1.0f) return;
+
+    std::string resolved = ResolveSvgPath(svgFilename);
+    int texDim = 128; // High resolution rasterization for smooth linear scaling
+    ID3D11ShaderResourceView* srv = GetSvgTexture(resolved, texDim, texDim);
+    if (srv) {
+        float half = size * 0.5f;
+        ImVec2 pMin(center.x - half, center.y - half);
+        ImVec2 pMax(center.x + half, center.y + half);
+        drawList->AddImage((ImTextureID)srv, pMin, pMax, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), tintColor);
+    }
+}
+
 ID3D11ShaderResourceView* IconManager::GetSvgTexture(const std::string& svgPath, int width, int height) {
     if (!m_device) return nullptr;
 
@@ -55,15 +124,30 @@ ID3D11ShaderResourceView* IconManager::GetSvgTexture(const std::string& svgPath,
         nsvgDelete(image);
         return nullptr;
     }
+    memset(imgData, 0, imgSize);
 
-    float scaleX = (float)width / image->width;
-    float scaleY = (float)height / image->height;
+    float scaleX = (image->width > 0.0f) ? ((float)width / image->width) : 1.0f;
+    float scaleY = (image->height > 0.0f) ? ((float)height / image->height) : 1.0f;
     float scale = (scaleX < scaleY) ? scaleX : scaleY;
+    if (scale <= 0.0001f) scale = 1.0f;
 
-    nsvgRasterize(rast, image, 0, 0, scale, imgData, width, height, width * 4);
+    float tx = (width - image->width * scale) * 0.5f;
+    float ty = (height - image->height * scale) * 0.5f;
+
+    nsvgRasterize(rast, image, tx, ty, scale, imgData, width, height, width * 4);
 
     nsvgDeleteRasterizer(rast);
     nsvgDelete(image);
+
+    // Normalize icon glyph to pure white with antialiased alpha so ImGui tinting works 100% accurately
+    for (size_t i = 0; i < (size_t)width * height; ++i) {
+        unsigned char a = imgData[i * 4 + 3];
+        if (a > 0) {
+            imgData[i * 4 + 0] = 255;
+            imgData[i * 4 + 1] = 255;
+            imgData[i * 4 + 2] = 255;
+        }
+    }
 
     // Create Direct3D 11 Texture2D
     D3D11_TEXTURE2D_DESC desc;
