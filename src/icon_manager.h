@@ -19,8 +19,12 @@ public:
     // Load or retrieve an SVG rasterized to DX11 texture
     ID3D11ShaderResourceView* GetSvgTexture(const std::string& svgPath, int width, int height);
 
-    // Resolve an SVG filename to an existing physical path in icons/ or ext/icon/
+    // Load or retrieve an image (JPG, PNG, etc.) decoded via WIC to a Direct3D 11 SRV
+    ID3D11ShaderResourceView* GetImageTexture(const std::string& imagePath, int* outWidth = nullptr, int* outHeight = nullptr);
+
+    // Resolve paths to existing physical files on disk
     std::string ResolveSvgPath(const std::string& filename);
+    std::string ResolveImagePath(const std::string& filename);
 
     // Draw an SVG icon directly loaded from disk
     void DrawSvgIcon(ImDrawList* drawList, const std::string& svgFilename, ImVec2 center, float size, ImU32 tintColor = IM_COL32(255, 255, 255, 255));

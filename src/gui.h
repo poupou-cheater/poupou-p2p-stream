@@ -79,7 +79,7 @@ void SavePeers(const GuiState& state);
 struct DebugState {
     bool showDebugWindow = true;
     int fakePeerCounter = 1;
-    int simulatedStreamCount = 0; // 0 = avatars only, 1..4 = simulated video feeds grid
+    int simulatedStreamCount = 1; // 0 = avatars only, 1..4 = simulated video feeds grid
     bool autoCycleVAD = false;
     float cycleTimer = 0.0f;
 };

@@ -474,14 +474,13 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
                 float pulse = 1.0f + 0.08f * sinf((float)ImGui::GetTime() * 4.0f);
                 drawList->AddCircle(center, topAvatarRadius * pulse, IM_COL32(255, 204, 0, 230), 32, 2.0f * g_dpiScale);
             } else if (peer->status == PeerStatus::Online) {
-                // Green online ring (or glowing green if actively speaking)
+                // Green speech ring ONLY when actively speaking
                 if (peer->isSpeaking) {
                     drawList->AddCircle(center, topAvatarRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.2f * g_dpiScale);
                     float glow = 2.0f + 1.5f * sinf((float)ImGui::GetTime() * 6.0f);
                     drawList->AddCircle(center, topAvatarRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.5f * g_dpiScale);
-                } else {
-                    drawList->AddCircle(center, topAvatarRadius, IM_COL32(72, 224, 110, 230), 32, 1.8f * g_dpiScale);
                 }
+                // When silent: NO border or colored contour
             }
 
             // Initials inside circle
@@ -539,15 +538,62 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     float wSet  = ImGui::CalcTextSize("setting").x + paddingX * 2.0f;
     float exactNavWidth = wHome + spacing + wConn + spacing + wSet;
 
-    // Shift to the right: default center + 55px offset, guaranteeing at least 50px space after left avatars
+    // Requirement 1: Avatar "me" placed immediately to the left of "home" button
+    float meRadius = 18.0f * g_dpiScale;
+    float meSpacing = 12.0f * g_dpiScale;
+
+    // Shift to the right: default center + 55px offset, guaranteeing ample room after left avatars
     float rightShift = 55.0f * g_dpiScale;
     float navStartX = (windowWidth - exactNavWidth) * 0.5f + rightShift;
-    float minNavStartX = leftEndX + 55.0f * g_dpiScale;
+    float minNavStartX = leftEndX + (meRadius * 2.0f) + 40.0f * g_dpiScale;
     if (navStartX < minNavStartX) {
         navStartX = minNavStartX;
     }
 
     float navY = (headerHeight - navBtnHeight) * 0.5f;
+
+    // Host "me" avatar positioned immediately to the left of "home"
+    float meX = navStartX - (meRadius * 2.0f) - meSpacing;
+    float meY = (headerHeight - (meRadius * 2.0f)) * 0.5f;
+    ImVec2 meScreenPos = ImVec2(headerStart.x + meX, headerStart.y + meY);
+    ImVec2 meCenter = ImVec2(meScreenPos.x + meRadius, meScreenPos.y + meRadius);
+
+    ImGui::SetCursorPos(ImVec2(meX, meY));
+    ImGui::InvisibleButton("##top_me_avatar", ImVec2(meRadius * 2.0f, meRadius * 2.0f));
+    bool meHovered = ImGui::IsItemHovered();
+
+    // Dark circular background
+    drawList->AddCircleFilled(meCenter, meRadius, IM_COL32(24, 26, 34, 255), 32);
+
+    // Speech glowing green ring ONLY when speaking
+    if (g_state.isMicSpeaking) {
+        drawList->AddCircle(meCenter, meRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.2f * g_dpiScale);
+        float glow = 2.0f + 1.5f * sinf((float)ImGui::GetTime() * 6.0f);
+        drawList->AddCircle(meCenter, meRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.5f * g_dpiScale);
+    }
+    // When silent: NO colored ring or contour
+
+    // Text "Me" centered
+    ImVec2 meTextSize = ImGui::CalcTextSize("Me");
+    drawList->AddText(ImVec2(meCenter.x - meTextSize.x * 0.5f, meCenter.y - meTextSize.y * 0.5f), IM_COL32(235, 235, 245, 255), "Me");
+
+    if (meHovered) {
+        ImGui::BeginTooltip();
+        ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.98f, 1.0f), "Host: Me (Local User)");
+        ImGui::TextDisabled(g_state.isMicSpeaking ? "Status: Speaking" : "Status: Connected (Silent)");
+        ImGui::TextDisabled("Right-click for audio / mic options");
+        ImGui::EndTooltip();
+    }
+
+    if (ImGui::BeginPopupContextItem("##top_me_avatar", ImGuiPopupFlags_MouseButtonRight)) {
+        ImGui::Text("Host Audio Options");
+        ImGui::Separator();
+        ImGui::MenuItem("Mute Microphone", nullptr, &g_state.isMicMuted);
+        ImGui::MenuItem("Deafen Audio", nullptr, &g_state.isAudioDeafened);
+        ImGui::MenuItem("RNNoise Noise Suppression", nullptr, &g_state.rnnoiseNoiseSuppression);
+        ImGui::EndPopup();
+    }
+
     ImGui::SetCursorPos(ImVec2(navStartX, navY));
 
     // Active pill color: #5c242e (exact wine/maroon tone from user's sketch)
@@ -1032,15 +1078,17 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
         }
     }
 
+    int streamCount = 0;
 #if defined(_DEBUG) || !defined(NDEBUG)
-    bool hasSimulatedStreams = (g_debug.simulatedStreamCount > 0);
-#else
-    bool hasSimulatedStreams = false;
+    if (g_debug.simulatedStreamCount > 0) {
+        streamCount = g_debug.simulatedStreamCount;
+    }
 #endif
+    if (streamCount == 0 && g_state.isStreaming) {
+        streamCount = 1;
+    }
 
-    if (hasSimulatedStreams) {
-#if defined(_DEBUG) || !defined(NDEBUG)
-        int streamCount = g_debug.simulatedStreamCount;
+    if (streamCount > 0) {
         float topY = 78.0f * g_dpiScale;
         float bottomY = windowHeight - 96.0f * g_dpiScale;
         float availW = windowWidth - 48.0f * g_dpiScale;
@@ -1060,7 +1108,8 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
         float gridTotalH = rows * cellH + (rows - 1) * cellSpacing;
         float gridStartY = topY + (availH - gridTotalH) * 0.5f;
 
-        float time = (float)ImGui::GetTime();
+        // Requirement 3: Load Helldivers 2 test image via WIC
+        ID3D11ShaderResourceView* streamTex = IconManager::Get().GetImageTexture("ext/img/helldivers-2-1_33b62d4e81ea4ef68c12cba0363065df-4243320100.jpg");
 
         for (int s = 0; s < streamCount; ++s) {
             int r = s / cols;
@@ -1074,50 +1123,34 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
             // Container background
             drawList->AddRectFilled(bMin, bMax, IM_COL32(16, 18, 24, 240), 12.0f * g_dpiScale);
 
-            // Animated synthetic stream test pattern
-            float wave = sinf(time * 2.0f + s * 1.5f) * 0.5f + 0.5f;
-            int rCol = (int)(20 + wave * 25);
-            int gCol = (int)(30 + (1.0f - wave) * 30);
-            int bCol = (int)(45 + wave * 40);
-            drawList->AddRectFilled(ImVec2(bMin.x + 2, bMin.y + 2), ImVec2(bMax.x - 2, bMax.y - 2), IM_COL32(rCol, gCol, bCol, 255), 10.0f * g_dpiScale);
+            // Streamer Name (e.g., "me", "pc poupou", "FakePeer_1")
+            std::string streamerName = (s < (int)participants.size()) ? participants[s].name : ("Peer " + std::to_string(s));
+            bool isStreamerSpeaking = (s < (int)participants.size()) ? participants[s].isSpeaking : false;
 
-            // Subtle moving scanline
-            float scanY = bMin.y + fmodf(time * 50.0f + s * 30.0f, cellH);
-            drawList->AddLine(ImVec2(bMin.x + 4, scanY), ImVec2(bMax.x - 4, scanY), IM_COL32(120, 180, 255, 35), 2.0f * g_dpiScale);
-
-            // Border
-            drawList->AddRect(bMin, bMax, IM_COL32(65, 72, 95, 180), 12.0f * g_dpiScale, 0, 1.5f * g_dpiScale);
-
-            // Video stream header badge
-            std::string streamTitle = (s == 0) ? "Host Screen (Poupou Desktop)" : ("Peer " + std::to_string(s) + "'s Video Stream");
-            if (s < (int)participants.size()) {
-                streamTitle = participants[s].name + "'s Screen";
+            // Render Helldivers 2 stream frame
+            if (streamTex) {
+                drawList->AddImageRounded((ImTextureID)streamTex, bMin, bMax, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), IM_COL32_WHITE, 12.0f * g_dpiScale);
+            } else {
+                drawList->AddRectFilled(bMin, bMax, IM_COL32(20, 22, 28, 255), 12.0f * g_dpiScale);
             }
-            ImVec2 tSize = ImGui::CalcTextSize(streamTitle.c_str());
+
+            // Frame border (glowing green ONLY when speaking, sleek border when silent)
+            if (isStreamerSpeaking) {
+                drawList->AddRect(bMin, bMax, IM_COL32(72, 224, 110, 255), 12.0f * g_dpiScale, 0, 2.5f * g_dpiScale);
+            } else {
+                drawList->AddRect(bMin, bMax, IM_COL32(65, 72, 90, 140), 12.0f * g_dpiScale, 0, 1.2f * g_dpiScale);
+            }
+
+            // Requirement 3: Top-left displays ONLY the streamer's name (no extra overlays or metadata)
+            ImVec2 tSize = ImGui::CalcTextSize(streamerName.c_str());
+            float padX = 10.0f * g_dpiScale;
+            float padY = 5.0f * g_dpiScale;
             ImVec2 tagMin(bMin.x + 12.0f * g_dpiScale, bMin.y + 12.0f * g_dpiScale);
-            ImVec2 tagMax(tagMin.x + tSize.x + 16.0f * g_dpiScale, tagMin.y + tSize.y + 8.0f * g_dpiScale);
-            drawList->AddRectFilled(tagMin, tagMax, IM_COL32(12, 14, 18, 210), 6.0f * g_dpiScale);
-            drawList->AddText(ImVec2(tagMin.x + 8.0f * g_dpiScale, tagMin.y + 4.0f * g_dpiScale), IM_COL32(230, 235, 245, 255), streamTitle.c_str());
+            ImVec2 tagMax(tagMin.x + tSize.x + padX * 2.0f, tagMin.y + tSize.y + padY * 2.0f);
 
-            // Tech stats tag bottom left
-            std::string techTag = "1080p60 • 8.4 Mbps • H.264 • Direct P2P";
-            ImVec2 statSize = ImGui::CalcTextSize(techTag.c_str());
-            ImVec2 sTagMin(bMin.x + 12.0f * g_dpiScale, bMax.y - statSize.y - 16.0f * g_dpiScale);
-            ImVec2 sTagMax(sTagMin.x + statSize.x + 16.0f * g_dpiScale, bMax.y - 8.0f * g_dpiScale);
-            drawList->AddRectFilled(sTagMin, sTagMax, IM_COL32(12, 14, 18, 210), 6.0f * g_dpiScale);
-            drawList->AddText(ImVec2(sTagMin.x + 8.0f * g_dpiScale, sTagMin.y + 4.0f * g_dpiScale), IM_COL32(120, 220, 140, 255), techTag.c_str());
-
-            // Audio meter on bottom right
-            float vuH = 18.0f * g_dpiScale;
-            float vuW = 60.0f * g_dpiScale;
-            ImVec2 vuMin(bMax.x - vuW - 14.0f * g_dpiScale, bMax.y - vuH - 12.0f * g_dpiScale);
-            ImVec2 vuMax(bMax.x - 14.0f * g_dpiScale, bMax.y - 12.0f * g_dpiScale);
-            drawList->AddRectFilled(vuMin, vuMax, IM_COL32(14, 16, 20, 210), 4.0f * g_dpiScale);
-            float vuLevel = 0.3f + 0.4f * sinf(time * 5.0f + s * 2.0f);
-            if (vuLevel < 0.05f) vuLevel = 0.05f;
-            drawList->AddRectFilled(vuMin, ImVec2(vuMin.x + vuW * vuLevel, vuMax.y), IM_COL32(72, 224, 110, 230), 4.0f * g_dpiScale);
+            drawList->AddRectFilled(tagMin, tagMax, IM_COL32(14, 16, 22, 220), 6.0f * g_dpiScale);
+            drawList->AddText(ImVec2(tagMin.x + padX, tagMin.y + padY), IM_COL32(240, 240, 245, 255), streamerName.c_str());
         }
-#endif
     } else {
         // 2. Participant Bubbles - Maximized scale occupying almost all available vertical space!
         int N = (int)participants.size();
@@ -1214,21 +1247,13 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
             drawList->AddCircleFilled(center, baseRadius, IM_COL32(22, 24, 32, 255), 64);
 
             // D. Status / Speech outline
+            // D. Status / Speech outline (Requirement 2: ONLY when speaking, NO outline when silent)
             if (p.isSpeaking) {
                 float ringRadius = baseRadius + 3.5f * g_dpiScale;
                 drawList->AddCircle(center, ringRadius, IM_COL32(72, 224, 110, 255), 64, 2.8f * g_dpiScale);
                 float time = (float)ImGui::GetTime();
                 float glowR = ringRadius + (3.0f + sinf(time * 6.0f) * 2.0f) * g_dpiScale;
                 drawList->AddCircle(center, glowR, IM_COL32(72, 224, 110, 120), 64, 1.8f * g_dpiScale);
-            } else if (p.status == PeerStatus::Waiting) {
-                float ringRadius = baseRadius + 3.0f * g_dpiScale;
-                float time = (float)ImGui::GetTime();
-                float pulseScale = 1.0f + 0.12f * sinf(time * 4.0f);
-                drawList->AddCircle(center, ringRadius * pulseScale, IM_COL32(255, 204, 0, 210), 64, 2.2f * g_dpiScale);
-            } else if (p.status == PeerStatus::Online) {
-                drawList->AddCircle(center, baseRadius, IM_COL32(80, 250, 123, 200), 64, 2.2f * g_dpiScale);
-            } else {
-                drawList->AddCircle(center, baseRadius, IM_COL32(65, 68, 85, 180), 64, 1.5f * g_dpiScale);
             }
 
             // E. Avatar monogram / text label inside

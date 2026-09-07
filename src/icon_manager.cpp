@@ -29,6 +29,10 @@ void IconManager::Cleanup() {
 }
 
 #include <windows.h>
+#include <wincodec.h>
+#include <vector>
+
+#pragma comment(lib, "windowscodecs.lib")
 
 std::string IconManager::ResolveSvgPath(const std::string& filename) {
     // 1. Direct path check
@@ -81,6 +85,160 @@ std::string IconManager::ResolveSvgPath(const std::string& filename) {
     }
 
     return "icons/" + filename;
+}
+
+std::string IconManager::ResolveImagePath(const std::string& filename) {
+    // 1. Direct path check
+    DWORD attr = GetFileAttributesA(filename.c_str());
+    if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+        return filename;
+    }
+
+    // 2. Relative search locations
+    const char* searchPrefixes[] = {
+        "",
+        "ext/img/",
+        "../ext/img/",
+        "../../ext/img/",
+        "../",
+        "../../"
+    };
+    for (const char* prefix : searchPrefixes) {
+        std::string candidate = prefix + filename;
+        attr = GetFileAttributesA(candidate.c_str());
+        if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+            return candidate;
+        }
+    }
+
+    // 3. Search relative to executable directory
+    char exePath[MAX_PATH] = { 0 };
+    if (GetModuleFileNameA(NULL, exePath, MAX_PATH) > 0) {
+        char* lastSlash = strrchr(exePath, '\\');
+        if (!lastSlash) lastSlash = strrchr(exePath, '/');
+        if (lastSlash) {
+            *lastSlash = '\0';
+            std::string exeDir = exePath;
+            const char* subDirs[] = {
+                "/",
+                "/ext/img/",
+                "/../../",
+                "/../../ext/img/",
+                "/../",
+                "/../ext/img/"
+            };
+            for (const char* sub : subDirs) {
+                std::string cand = exeDir + sub + filename;
+                attr = GetFileAttributesA(cand.c_str());
+                if (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+                    return cand;
+                }
+            }
+        }
+    }
+
+    return filename;
+}
+
+ID3D11ShaderResourceView* IconManager::GetImageTexture(const std::string& imagePath, int* outWidth, int* outHeight) {
+    if (!m_device) return nullptr;
+
+    std::string resolved = ResolveImagePath(imagePath);
+
+    auto it = m_textures.find(resolved);
+    if (it != m_textures.end()) {
+        return it->second;
+    }
+
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, resolved.c_str(), -1, nullptr, 0);
+    if (wlen <= 0) return nullptr;
+    std::wstring wpath(wlen, 0);
+    MultiByteToWideChar(CP_UTF8, 0, resolved.c_str(), -1, &wpath[0], wlen);
+
+    IWICImagingFactory* pFactory = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pFactory));
+    if (FAILED(hr)) return nullptr;
+
+    IWICBitmapDecoder* pDecoder = nullptr;
+    hr = pFactory->CreateDecoderFromFilename(wpath.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &pDecoder);
+    if (FAILED(hr)) {
+        pFactory->Release();
+        return nullptr;
+    }
+
+    IWICBitmapFrameDecode* pFrame = nullptr;
+    hr = pDecoder->GetFrame(0, &pFrame);
+    if (FAILED(hr)) {
+        pDecoder->Release();
+        pFactory->Release();
+        return nullptr;
+    }
+
+    IWICFormatConverter* pConverter = nullptr;
+    hr = pFactory->CreateFormatConverter(&pConverter);
+    if (FAILED(hr)) {
+        pFrame->Release();
+        pDecoder->Release();
+        pFactory->Release();
+        return nullptr;
+    }
+
+    hr = pConverter->Initialize(pFrame, GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0.0f, WICBitmapPaletteTypeCustom);
+    if (FAILED(hr)) {
+        pConverter->Release();
+        pFrame->Release();
+        pDecoder->Release();
+        pFactory->Release();
+        return nullptr;
+    }
+
+    UINT width = 0, height = 0;
+    pConverter->GetSize(&width, &height);
+
+    std::vector<BYTE> buffer((size_t)width * height * 4);
+    hr = pConverter->CopyPixels(nullptr, width * 4, (UINT)buffer.size(), buffer.data());
+
+    pConverter->Release();
+    pFrame->Release();
+    pDecoder->Release();
+    pFactory->Release();
+
+    if (FAILED(hr)) return nullptr;
+
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width = width;
+    desc.Height = height;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    D3D11_SUBRESOURCE_DATA subData = {};
+    subData.pSysMem = buffer.data();
+    subData.SysMemPitch = width * 4;
+
+    ID3D11Texture2D* pTexture = nullptr;
+    hr = m_device->CreateTexture2D(&desc, &subData, &pTexture);
+    if (FAILED(hr)) return nullptr;
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = 1;
+
+    ID3D11ShaderResourceView* srv = nullptr;
+    hr = m_device->CreateShaderResourceView(pTexture, &srvDesc, &srv);
+    pTexture->Release();
+
+    if (SUCCEEDED(hr)) {
+        m_textures[resolved] = srv;
+        if (outWidth) *outWidth = (int)width;
+        if (outHeight) *outHeight = (int)height;
+        return srv;
+    }
+    return nullptr;
 }
 
 void IconManager::DrawSvgIcon(ImDrawList* drawList, const std::string& svgFilename, ImVec2 center, float size, ImU32 tintColor) {
