@@ -20,6 +20,10 @@ namespace fs = std::filesystem;
 
 static GuiState g_state;
 
+#if defined(_DEBUG) || !defined(NDEBUG)
+DebugState g_debug;
+#endif
+
 // Requirement 2: AppData vs Portable Mode configuration & peer persistence
 static fs::path GetStorageDirectory() {
     wchar_t exePathBuf[MAX_PATH] = { 0 };
@@ -433,23 +437,100 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     // Requirement 4: Topbar enlargement (height 70px, avatars 20px radius, larger nav pills & window buttons)
     float avatarRadius = 20.0f * g_dpiScale;
     float avatarMeRadius = 21.0f * g_dpiScale;
-    float avatarY = (headerHeight - (avatarMeRadius * 2.0f + 4.0f)) * 0.5f;
-    ImGui::SetCursorPos(ImVec2(20.0f * g_dpiScale, avatarY));
+    // Top-left: Display ONLY active peers (Waiting [Yellow] or Online [Green]).
+    // "me" and disconnected/offline peers are NOT shown here per user specification.
+    std::vector<Peer*> activeTopPeers;
+    for (auto& peer : g_state.peers) {
+        if (peer.status == PeerStatus::Waiting || peer.status == PeerStatus::Online) {
+            activeTopPeers.push_back(&peer);
+        }
+    }
 
-    // Left side: 3 Circular avatars ( ) ( ) (me)
-    // Requirement 2: Glowing speech ring ONLY when someone is actively speaking (Voice Activity Detection).
-    // Simple neutral circle at all other times, no permanent colored ring on anyone.
-    bool peer1Speaking = false;
-    bool peer2Speaking = false;
-    bool meSpeaking = false;
+    float topAvatarRadius = 17.0f * g_dpiScale;
+    float topAvatarSpacing = 10.0f * g_dpiScale;
+    float leftMargin = 20.0f * g_dpiScale;
+    float topAvatarY = (headerHeight - (topAvatarRadius * 2.0f)) * 0.5f;
+    float leftEndX = leftMargin;
 
-    RenderAvatar("##avatar_peer1", "", peer1Speaking, avatarRadius, false);
-    ImGui::SameLine(0, 10.0f * g_dpiScale);
-    RenderAvatar("##avatar_peer2", "", peer2Speaking, avatarRadius, false);
-    ImGui::SameLine(0, 10.0f * g_dpiScale);
-    RenderAvatar("##avatar_me", "me", meSpeaking, avatarMeRadius, true);
+    if (!activeTopPeers.empty()) {
+        ImGui::SetCursorPos(ImVec2(leftMargin, topAvatarY));
+        for (size_t i = 0; i < activeTopPeers.size(); ++i) {
+            Peer* peer = activeTopPeers[i];
+            if (i > 0) ImGui::SameLine(0, topAvatarSpacing);
 
-    // Center: Navigation pill buttons strictly centered horizontally in the exact middle of the window
+            ImVec2 screenPos = ImGui::GetCursorScreenPos();
+            ImVec2 center(screenPos.x + topAvatarRadius, screenPos.y + topAvatarRadius);
+            std::string btnId = "##top_peer_" + std::to_string(i) + "_" + peer->name;
+
+            ImGui::InvisibleButton(btnId.c_str(), ImVec2(topAvatarRadius * 2.0f, topAvatarRadius * 2.0f));
+            bool isHovered = ImGui::IsItemHovered();
+
+            // Background circle
+            drawList->AddCircleFilled(center, topAvatarRadius, IM_COL32(20, 22, 28, 255), 32);
+
+            // Status border
+            if (peer->status == PeerStatus::Waiting) {
+                // Yellow waiting ring with soft pulse
+                float pulse = 1.0f + 0.08f * sinf((float)ImGui::GetTime() * 4.0f);
+                drawList->AddCircle(center, topAvatarRadius * pulse, IM_COL32(255, 204, 0, 230), 32, 2.0f * g_dpiScale);
+            } else if (peer->status == PeerStatus::Online) {
+                // Green online ring (or glowing green if actively speaking)
+                if (peer->isSpeaking) {
+                    drawList->AddCircle(center, topAvatarRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.2f * g_dpiScale);
+                    float glow = 2.0f + 1.5f * sinf((float)ImGui::GetTime() * 6.0f);
+                    drawList->AddCircle(center, topAvatarRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.5f * g_dpiScale);
+                } else {
+                    drawList->AddCircle(center, topAvatarRadius, IM_COL32(72, 224, 110, 230), 32, 1.8f * g_dpiScale);
+                }
+            }
+
+            // Initials inside circle
+            std::string initials = "";
+            if (!peer->name.empty()) {
+                initials += (char)toupper(peer->name[0]);
+                if (peer->name.length() > 1 && isalpha(peer->name[1])) initials += (char)tolower(peer->name[1]);
+            } else {
+                initials = "?";
+            }
+            ImVec2 textSize = ImGui::CalcTextSize(initials.c_str());
+            ImU32 textCol = (peer->status == PeerStatus::Waiting) ? IM_COL32(255, 220, 100, 255) : IM_COL32(230, 235, 245, 255);
+            drawList->AddText(ImVec2(center.x - textSize.x * 0.5f, center.y - textSize.y * 0.5f), textCol, initials.c_str());
+
+            // Hover Tooltip
+            if (isHovered) {
+                ImGui::BeginTooltip();
+                ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.98f, 1.0f), "%s", peer->name.c_str());
+                if (peer->status == PeerStatus::Waiting) {
+                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.1f, 1.0f), "Status: Waiting for connection...");
+                } else {
+                    ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), "Status: Connected (Online)");
+                    ImGui::TextDisabled(peer->isSpeaking ? "Speaking" : "Idle");
+                }
+                ImGui::TextDisabled("Right-click for options");
+                ImGui::EndTooltip();
+            }
+
+            // Right-click context menu directly on top-left small circle
+            if (ImGui::BeginPopupContextItem(btnId.c_str(), ImGuiPopupFlags_MouseButtonRight)) {
+                ImGui::Text("%s Options", peer->name.c_str());
+                ImGui::Separator();
+                ImGui::Text("Volume: %.0f%%", peer->volume * 100.0f);
+                if (ImGui::SliderFloat("##top_peer_vol", &peer->volume, 0.0f, 1.5f, "%.0f%%")) {
+                    SavePeers(g_state);
+                }
+                ImGui::MenuItem("Mute Audio", nullptr, &peer->isMuted);
+                ImGui::MenuItem("Deafen Audio", nullptr, &peer->isDeafened);
+                if (ImGui::MenuItem("Poke Peer (Ping)")) {
+                    peer->pokeTimer = 2.0f;
+                }
+                ImGui::EndPopup();
+            }
+
+            leftEndX = screenPos.x + topAvatarRadius * 2.0f;
+        }
+    }
+
+    // Navigation pills shifted slightly to the right to leave an empty breathing space to the left of "home"
     float navBtnHeight = 40.0f * g_dpiScale;
     float paddingX = 22.0f * g_dpiScale;
     float spacing = 10.0f * g_dpiScale;
@@ -457,7 +538,14 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     float wConn = ImGui::CalcTextSize("current connection").x + paddingX * 2.0f;
     float wSet  = ImGui::CalcTextSize("setting").x + paddingX * 2.0f;
     float exactNavWidth = wHome + spacing + wConn + spacing + wSet;
-    float navStartX = (windowWidth - exactNavWidth) * 0.5f;
+
+    // Shift to the right: default center + 55px offset, guaranteeing at least 50px space after left avatars
+    float rightShift = 55.0f * g_dpiScale;
+    float navStartX = (windowWidth - exactNavWidth) * 0.5f + rightShift;
+    float minNavStartX = leftEndX + 55.0f * g_dpiScale;
+    if (navStartX < minNavStartX) {
+        navStartX = minNavStartX;
+    }
 
     float navY = (headerHeight - navBtnHeight) * 0.5f;
     ImGui::SetCursorPos(ImVec2(navStartX, navY));
@@ -511,6 +599,24 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     float btnSize = 34.0f * g_dpiScale;
     float controlsWidth = (btnSize * 3.0f + 14.0f * g_dpiScale);
     float controlsY = (headerHeight - btnSize) * 0.5f;
+
+#if defined(_DEBUG) || !defined(NDEBUG)
+    // Debug toggle button in topbar
+    float dbgBtnW = 86.0f * g_dpiScale;
+    float dbgBtnH = 30.0f * g_dpiScale;
+    ImGui::SetCursorPos(ImVec2(windowWidth - controlsWidth - dbgBtnW - 22.0f * g_dpiScale, (headerHeight - dbgBtnH) * 0.5f));
+    ImGui::PushStyleColor(ImGuiCol_Button, g_debug.showDebugWindow ? ImVec4(0.48f, 0.20f, 0.25f, 1.0f) : ImVec4(0.14f, 0.15f, 0.20f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.58f, 0.24f, 0.32f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.38f, 0.40f, 0.55f, 0.8f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f * g_dpiScale);
+    if (ImGui::Button("🛠 Debug", ImVec2(dbgBtnW, dbgBtnH))) {
+        g_debug.showDebugWindow = !g_debug.showDebugWindow;
+    }
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(3);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Toggle Debug & Simulation Tools (F12)");
+#endif
+
     ImGui::SetCursorPos(ImVec2(windowWidth - controlsWidth - 14.0f * g_dpiScale, controlsY));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 7.0f * g_dpiScale);
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10.0f * g_dpiScale, 6.0f * g_dpiScale));
@@ -916,31 +1022,106 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
 
     std::vector<ParticipantBubble> participants;
 
-    // Check if any peer is active or waiting
-    bool hasActiveSession = !g_state.activeConnectedIp.empty() || g_state.isStreaming;
+    // Requirement 1: In the central area, "me" is always shown, plus ONLY peers who are ACTUALLY connected (status == Online).
+    // Peers in "Waiting" status are NEVER displayed as big central bubbles!
+    participants.push_back({ "me", "local host", PeerStatus::Online, g_state.isMicSpeaking, true, nullptr });
+
     for (auto& peer : g_state.peers) {
-        if (peer.status == PeerStatus::Online || peer.status == PeerStatus::Waiting) {
-            hasActiveSession = true;
-            break;
+        if (peer.status == PeerStatus::Online) {
+            participants.push_back({ peer.name, "live stream", peer.status, peer.isSpeaking, false, &peer });
         }
     }
 
-    if (hasActiveSession) {
-        // Participant 0: "me" (local host)
-        participants.push_back({ "me", "local host", PeerStatus::Online, false, true, nullptr });
+#if defined(_DEBUG) || !defined(NDEBUG)
+    bool hasSimulatedStreams = (g_debug.simulatedStreamCount > 0);
+#else
+    bool hasSimulatedStreams = false;
+#endif
 
-        // Add all active or connected peers with pointers to actual state
-        for (auto& peer : g_state.peers) {
-            if (peer.ip == g_state.activeConnectedIp || peer.status == PeerStatus::Online || peer.status == PeerStatus::Waiting) {
-                std::string role = (peer.status == PeerStatus::Online) ? "live stream" : "waiting for peer...";
-                participants.push_back({ peer.name, role, peer.status, peer.isSpeaking, false, &peer });
+    if (hasSimulatedStreams) {
+#if defined(_DEBUG) || !defined(NDEBUG)
+        int streamCount = g_debug.simulatedStreamCount;
+        float topY = 78.0f * g_dpiScale;
+        float bottomY = windowHeight - 96.0f * g_dpiScale;
+        float availW = windowWidth - 48.0f * g_dpiScale;
+        float availH = bottomY - topY;
+        float startX = 24.0f * g_dpiScale;
+
+        int cols = (streamCount == 1) ? 1 : 2;
+        int rows = (streamCount <= 2) ? 1 : 2;
+
+        float cellSpacing = 14.0f * g_dpiScale;
+        float cellW = (availW - (cols - 1) * cellSpacing) / cols;
+        float cellH = (availH - (rows - 1) * cellSpacing) / rows;
+
+        // 16:9 aspect ratio cap
+        float maxH = cellW * (9.0f / 16.0f);
+        if (cellH > maxH) cellH = maxH;
+        float gridTotalH = rows * cellH + (rows - 1) * cellSpacing;
+        float gridStartY = topY + (availH - gridTotalH) * 0.5f;
+
+        float time = (float)ImGui::GetTime();
+
+        for (int s = 0; s < streamCount; ++s) {
+            int r = s / cols;
+            int c = s % cols;
+            float bx = startX + c * (cellW + cellSpacing);
+            float by = gridStartY + r * (cellH + cellSpacing);
+
+            ImVec2 bMin(bx, by);
+            ImVec2 bMax(bx + cellW, by + cellH);
+
+            // Container background
+            drawList->AddRectFilled(bMin, bMax, IM_COL32(16, 18, 24, 240), 12.0f * g_dpiScale);
+
+            // Animated synthetic stream test pattern
+            float wave = sinf(time * 2.0f + s * 1.5f) * 0.5f + 0.5f;
+            int rCol = (int)(20 + wave * 25);
+            int gCol = (int)(30 + (1.0f - wave) * 30);
+            int bCol = (int)(45 + wave * 40);
+            drawList->AddRectFilled(ImVec2(bMin.x + 2, bMin.y + 2), ImVec2(bMax.x - 2, bMax.y - 2), IM_COL32(rCol, gCol, bCol, 255), 10.0f * g_dpiScale);
+
+            // Subtle moving scanline
+            float scanY = bMin.y + fmodf(time * 50.0f + s * 30.0f, cellH);
+            drawList->AddLine(ImVec2(bMin.x + 4, scanY), ImVec2(bMax.x - 4, scanY), IM_COL32(120, 180, 255, 35), 2.0f * g_dpiScale);
+
+            // Border
+            drawList->AddRect(bMin, bMax, IM_COL32(65, 72, 95, 180), 12.0f * g_dpiScale, 0, 1.5f * g_dpiScale);
+
+            // Video stream header badge
+            std::string streamTitle = (s == 0) ? "Host Screen (Poupou Desktop)" : ("Peer " + std::to_string(s) + "'s Video Stream");
+            if (s < (int)participants.size()) {
+                streamTitle = participants[s].name + "'s Screen";
             }
-        }
-    }
+            ImVec2 tSize = ImGui::CalcTextSize(streamTitle.c_str());
+            ImVec2 tagMin(bMin.x + 12.0f * g_dpiScale, bMin.y + 12.0f * g_dpiScale);
+            ImVec2 tagMax(tagMin.x + tSize.x + 16.0f * g_dpiScale, tagMin.y + tSize.y + 8.0f * g_dpiScale);
+            drawList->AddRectFilled(tagMin, tagMax, IM_COL32(12, 14, 18, 210), 6.0f * g_dpiScale);
+            drawList->AddText(ImVec2(tagMin.x + 8.0f * g_dpiScale, tagMin.y + 4.0f * g_dpiScale), IM_COL32(230, 235, 245, 255), streamTitle.c_str());
 
-    // 2. Participant Bubbles - Maximized scale occupying almost all available vertical space!
-    int N = (int)participants.size();
-    if (N > 0) {
+            // Tech stats tag bottom left
+            std::string techTag = "1080p60 • 8.4 Mbps • H.264 • Direct P2P";
+            ImVec2 statSize = ImGui::CalcTextSize(techTag.c_str());
+            ImVec2 sTagMin(bMin.x + 12.0f * g_dpiScale, bMax.y - statSize.y - 16.0f * g_dpiScale);
+            ImVec2 sTagMax(sTagMin.x + statSize.x + 16.0f * g_dpiScale, bMax.y - 8.0f * g_dpiScale);
+            drawList->AddRectFilled(sTagMin, sTagMax, IM_COL32(12, 14, 18, 210), 6.0f * g_dpiScale);
+            drawList->AddText(ImVec2(sTagMin.x + 8.0f * g_dpiScale, sTagMin.y + 4.0f * g_dpiScale), IM_COL32(120, 220, 140, 255), techTag.c_str());
+
+            // Audio meter on bottom right
+            float vuH = 18.0f * g_dpiScale;
+            float vuW = 60.0f * g_dpiScale;
+            ImVec2 vuMin(bMax.x - vuW - 14.0f * g_dpiScale, bMax.y - vuH - 12.0f * g_dpiScale);
+            ImVec2 vuMax(bMax.x - 14.0f * g_dpiScale, bMax.y - 12.0f * g_dpiScale);
+            drawList->AddRectFilled(vuMin, vuMax, IM_COL32(14, 16, 20, 210), 4.0f * g_dpiScale);
+            float vuLevel = 0.3f + 0.4f * sinf(time * 5.0f + s * 2.0f);
+            if (vuLevel < 0.05f) vuLevel = 0.05f;
+            drawList->AddRectFilled(vuMin, ImVec2(vuMin.x + vuW * vuLevel, vuMax.y), IM_COL32(72, 224, 110, 230), 4.0f * g_dpiScale);
+        }
+#endif
+    } else {
+        // 2. Participant Bubbles - Maximized scale occupying almost all available vertical space!
+        int N = (int)participants.size();
+        if (N > 0) {
         float topY = 78.0f * g_dpiScale;
         float bottomY = windowHeight - 96.0f * g_dpiScale;
         float availHeight = bottomY - topY;
@@ -1104,6 +1285,7 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
         drawList->AddText(ImVec2((windowWidth - ms.x) * 0.5f, windowHeight * 0.46f),
                           IM_COL32(150, 154, 170, 255), msg);
     }
+}
 
     // 3. Floating Collaborative Bottom Dock (Center) matching exact user sketch
     float btnW = 46.0f * g_dpiScale;
@@ -1268,8 +1450,14 @@ static void RenderSettingsView(float contentWidth, float contentHeight) {
     float sidebarWidth = 180.0f * g_dpiScale;
     ImGui::BeginChild("##settings_sidebar", ImVec2(sidebarWidth, contentHeight - 40.0f * g_dpiScale), true);
 
+#if defined(_DEBUG) || !defined(NDEBUG)
+    const char* categories[] = { "Account", "Theme", "Hotkey", "Audio", "Setting", "Stat", "Debug Tools" };
+    const int numCategories = 7;
+#else
     const char* categories[] = { "Account", "Theme", "Hotkey", "Audio", "Setting", "Stat" };
-    for (int i = 0; i < 6; ++i) {
+    const int numCategories = 6;
+#endif
+    for (int i = 0; i < numCategories; ++i) {
         bool selected = (g_state.settingsCategory == i);
         if (selected) {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.36f, 0.14f, 0.18f, 1.0f)); // Wine accent
@@ -1339,6 +1527,50 @@ static void RenderSettingsView(float contentWidth, float contentHeight) {
         ImGui::Text("Packet Loss: 0.00 %");
         ImGui::Text("Framerate Presentation: 60.0 FPS (VSync On)");
         ImGui::Text("Graphics API: DirectX 11.0 (Hardware SwapChain)");
+#if defined(_DEBUG) || !defined(NDEBUG)
+    } else if (g_state.settingsCategory == 6) { // Debug Tools
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.5f, 1.0f), "Debug & Simulation Tools (DEBUG BUILD)");
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        ImGui::Checkbox("Show Floating Debug Window (Hotkey: F12)", &g_debug.showDebugWindow);
+        ImGui::Spacing();
+
+        ImGui::Text("Simulated Video Stream Grid (Current Connection Tab):");
+        ImGui::SliderInt("##settings_sim_streams", &g_debug.simulatedStreamCount, 0, 4, "%d active feeds");
+        if (ImGui::Button("View Streams in Current Connection")) {
+            if (g_debug.simulatedStreamCount == 0) g_debug.simulatedStreamCount = 2;
+            g_state.currentTab = AppTab::CurrentConnection;
+        }
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        ImGui::Text("Fake Participants Quick Actions:");
+        if (ImGui::Button("+ Add Fake Peer (Online)", ImVec2(180.0f * g_dpiScale, 30.0f * g_dpiScale))) {
+            Peer fp;
+            fp.ip = "100.113." + std::to_string(100 + g_debug.fakePeerCounter) + "." + std::to_string(g_debug.fakePeerCounter);
+            fp.name = "FakePeer_" + std::to_string(g_debug.fakePeerCounter++);
+            fp.status = PeerStatus::Online;
+            fp.latencyMs = 15;
+            g_state.peers.push_back(fp);
+            SavePeers(g_state);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("+ Add Waiting Peer", ImVec2(160.0f * g_dpiScale, 30.0f * g_dpiScale))) {
+            Peer fp;
+            fp.ip = "100.113." + std::to_string(100 + g_debug.fakePeerCounter) + "." + std::to_string(g_debug.fakePeerCounter);
+            fp.name = "WaitingPeer_" + std::to_string(g_debug.fakePeerCounter++);
+            fp.status = PeerStatus::Waiting;
+            fp.latencyMs = 45;
+            g_state.peers.push_back(fp);
+            SavePeers(g_state);
+        }
+
+        ImGui::Spacing();
+        ImGui::Checkbox("Simulate 'me' speaking", &g_state.isMicSpeaking);
+        ImGui::SameLine();
+        ImGui::Checkbox("Auto-cycle VAD (simulate talkers)", &g_debug.autoCycleVAD);
+#endif
     } else {
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1.0f), "%s Settings", categories[g_state.settingsCategory]);
         ImGui::Separator();
@@ -1416,6 +1648,176 @@ static void RenderModals() {
     }
 }
 
+#if defined(_DEBUG) || !defined(NDEBUG)
+void RenderDebugWindow() {
+    ImGui::SetNextWindowSize(ImVec2(500.0f * g_dpiScale, 620.0f * g_dpiScale), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(30.0f * g_dpiScale, 90.0f * g_dpiScale), ImGuiCond_FirstUseEver);
+
+    if (!ImGui::Begin("🛠 Debug & Simulation Tools##dbg_floating", &g_debug.showDebugWindow, ImGuiWindowFlags_None)) {
+        ImGui::End();
+        return;
+    }
+
+    ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.55f, 1.0f), "Poupou P2P Stream - Internal Debugger");
+    ImGui::TextDisabled("Press [F12] or click [🛠 Debug] in topbar to show/hide this panel.");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // 1. Virtual Video Stream Grid Simulation
+    if (ImGui::CollapsingHeader("📹 Simulated Video Streams / Visio Grid", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Text("Simulate reception of 1 or more virtual video streams:");
+        ImGui::SliderInt("##dbg_stream_slider", &g_debug.simulatedStreamCount, 0, 4, "%d active streams");
+        ImGui::Spacing();
+
+        if (ImGui::Button("0: Avatars Only", ImVec2(110.0f * g_dpiScale, 28.0f * g_dpiScale))) {
+            g_debug.simulatedStreamCount = 0;
+            g_state.currentTab = AppTab::CurrentConnection;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("1 Stream", ImVec2(80.0f * g_dpiScale, 28.0f * g_dpiScale))) {
+            g_debug.simulatedStreamCount = 1;
+            g_state.currentTab = AppTab::CurrentConnection;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("2 Streams", ImVec2(80.0f * g_dpiScale, 28.0f * g_dpiScale))) {
+            g_debug.simulatedStreamCount = 2;
+            g_state.currentTab = AppTab::CurrentConnection;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("4 Streams Grid", ImVec2(110.0f * g_dpiScale, 28.0f * g_dpiScale))) {
+            g_debug.simulatedStreamCount = 4;
+            g_state.currentTab = AppTab::CurrentConnection;
+        }
+        ImGui::Spacing();
+    }
+
+    // 2. Fake Participants Generator
+    if (ImGui::CollapsingHeader("👥 Fake Participants Generator (Stress Test)", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Text("Add fake peers on the fly to test responsive scaling & mesh:");
+
+        if (ImGui::Button("+ Add Fake Peer (Online)", ImVec2(190.0f * g_dpiScale, 30.0f * g_dpiScale))) {
+            Peer fp;
+            fp.ip = "100.113." + std::to_string(100 + g_debug.fakePeerCounter) + "." + std::to_string(g_debug.fakePeerCounter);
+            fp.name = "FakePeer_" + std::to_string(g_debug.fakePeerCounter++);
+            fp.status = PeerStatus::Online;
+            fp.latencyMs = 12 + (rand() % 25);
+            fp.isSpeaking = false;
+            g_state.peers.push_back(fp);
+            SavePeers(g_state);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("+ Add Waiting Peer (Yellow)", ImVec2(200.0f * g_dpiScale, 30.0f * g_dpiScale))) {
+            Peer fp;
+            fp.ip = "100.113." + std::to_string(100 + g_debug.fakePeerCounter) + "." + std::to_string(g_debug.fakePeerCounter);
+            fp.name = "WaitingPeer_" + std::to_string(g_debug.fakePeerCounter++);
+            fp.status = PeerStatus::Waiting;
+            fp.latencyMs = 45;
+            fp.isSpeaking = false;
+            g_state.peers.push_back(fp);
+            SavePeers(g_state);
+        }
+
+        ImGui::Spacing();
+        if (ImGui::Button("+ Add 3 Online Peers", ImVec2(160.0f * g_dpiScale, 28.0f * g_dpiScale))) {
+            for (int k = 0; k < 3; ++k) {
+                Peer fp;
+                fp.ip = "100.113." + std::to_string(100 + g_debug.fakePeerCounter) + "." + std::to_string(g_debug.fakePeerCounter);
+                fp.name = "User_" + std::to_string(g_debug.fakePeerCounter++);
+                fp.status = PeerStatus::Online;
+                fp.latencyMs = 10 + (rand() % 30);
+                g_state.peers.push_back(fp);
+            }
+            SavePeers(g_state);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Clear All Fake Peers", ImVec2(160.0f * g_dpiScale, 28.0f * g_dpiScale))) {
+            for (auto it = g_state.peers.begin(); it != g_state.peers.end(); ) {
+                if (it->name.find("FakePeer_") == 0 || it->name.find("WaitingPeer_") == 0 || it->name.find("User_") == 0) {
+                    it = g_state.peers.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            SavePeers(g_state);
+        }
+        ImGui::Spacing();
+    }
+
+    // 3. Instant Peer Status & Voice Activity Switcher
+    if (ImGui::CollapsingHeader("⚡ Instant Peer Status & Voice Switcher", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Checkbox("Simulate 'me' speaking (Voice Activity Ring)", &g_state.isMicSpeaking);
+        ImGui::SameLine();
+        ImGui::Checkbox("Auto-cycle VAD (talkers)", &g_debug.autoCycleVAD);
+
+        ImGui::Spacing();
+        ImGui::Text("Registered Peers (%zu total):", g_state.peers.size());
+
+        ImGui::BeginChild("##debug_peer_list", ImVec2(0, 220.0f * g_dpiScale), true);
+        for (size_t i = 0; i < g_state.peers.size(); ++i) {
+            auto& peer = g_state.peers[i];
+            ImGui::PushID((int)i);
+
+            // Status dot
+            ImVec4 stCol = (peer.status == PeerStatus::Online) ? ImVec4(0.3f, 0.9f, 0.4f, 1.0f) :
+                           ((peer.status == PeerStatus::Waiting) ? ImVec4(1.0f, 0.8f, 0.2f, 1.0f) : ImVec4(0.85f, 0.3f, 0.3f, 1.0f));
+            ImGui::TextColored(stCol, "●");
+            ImGui::SameLine();
+            ImGui::Text("%s", peer.name.c_str());
+
+            // Status buttons
+            ImGui::SameLine(ImGui::GetContentRegionAvail().x - 230.0f * g_dpiScale);
+            if (ImGui::SmallButton("Offline")) {
+                peer.status = PeerStatus::Offline;
+                peer.isSpeaking = false;
+                SavePeers(g_state);
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Waiting")) {
+                peer.status = PeerStatus::Waiting;
+                peer.isSpeaking = false;
+                SavePeers(g_state);
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Online")) {
+                peer.status = PeerStatus::Online;
+                SavePeers(g_state);
+            }
+            ImGui::SameLine();
+            ImGui::Checkbox("Voice", &peer.isSpeaking);
+
+            ImGui::SameLine();
+            if (ImGui::SmallButton("✕")) {
+                g_state.peers.erase(g_state.peers.begin() + i);
+                SavePeers(g_state);
+                ImGui::PopID();
+                break;
+            }
+
+            ImGui::PopID();
+            ImGui::Separator();
+        }
+        if (g_state.peers.empty()) {
+            ImGui::TextDisabled("No peers registered. Click 'Add Fake Peer' above.");
+        }
+        ImGui::EndChild();
+    }
+
+    // 4. Viewport Resolution & Scaling Quick Test
+    if (ImGui::CollapsingHeader("🔍 UI Scaling Quick Test")) {
+        ImGui::Text("Simulate different DPI / UI Scales:");
+        if (ImGui::Button("1.00x", ImVec2(60.0f * g_dpiScale, 26.0f * g_dpiScale))) g_state.uiScale = 1.0f;
+        ImGui::SameLine();
+        if (ImGui::Button("1.25x", ImVec2(60.0f * g_dpiScale, 26.0f * g_dpiScale))) g_state.uiScale = 1.25f;
+        ImGui::SameLine();
+        if (ImGui::Button("1.50x", ImVec2(60.0f * g_dpiScale, 26.0f * g_dpiScale))) g_state.uiScale = 1.5f;
+        ImGui::SameLine();
+        if (ImGui::Button("2.00x", ImVec2(60.0f * g_dpiScale, 26.0f * g_dpiScale))) g_state.uiScale = 2.0f;
+    }
+
+    ImGui::End();
+}
+#endif
+
 void RenderGui(HWND hWnd, Dx11Context& dx) {
     if (ImGui::GetCurrentContext() == nullptr) return;
     if (ImGui::GetIO().BackendRendererUserData == nullptr) return;
@@ -1449,6 +1851,29 @@ void RenderGui(HWND hWnd, Dx11Context& dx) {
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
+
+#if defined(_DEBUG) || !defined(NDEBUG)
+    // F12 Hotkey to toggle Debug window
+    if (ImGui::IsKeyPressed(ImGuiKey_F12, false)) {
+        g_debug.showDebugWindow = !g_debug.showDebugWindow;
+    }
+
+    // Auto-cycle VAD simulation
+    if (g_debug.autoCycleVAD) {
+        g_debug.cycleTimer += ImGui::GetIO().DeltaTime;
+        if (g_debug.cycleTimer >= 1.5f) {
+            g_debug.cycleTimer = 0.0f;
+            for (auto& p : g_state.peers) {
+                if (p.status == PeerStatus::Online) {
+                    p.isSpeaking = ((rand() % 3) == 0);
+                } else {
+                    p.isSpeaking = false;
+                }
+            }
+            g_state.isMicSpeaking = ((rand() % 4) == 0);
+        }
+    }
+#endif
 
     // Fullscreen main ImGui viewport window covering the entire client area
     ImGui::SetNextWindowPos(ImVec2(0, 0));
@@ -1486,6 +1911,12 @@ void RenderGui(HWND hWnd, Dx11Context& dx) {
     RenderModals();
 
     ImGui::End();
+
+#if defined(_DEBUG) || !defined(NDEBUG)
+    if (g_debug.showDebugWindow) {
+        RenderDebugWindow();
+    }
+#endif
 
     ImGui::Render();
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());

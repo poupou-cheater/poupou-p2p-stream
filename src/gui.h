@@ -51,6 +51,7 @@ struct GuiState {
     std::string activeConnectedIp;
     bool isStreaming = false;
     bool isMicMuted = false;
+    bool isMicSpeaking = false;
     bool isAudioDeafened = false;
     bool isDrawMode = false;
     bool showCursorOnOtherScreen = true;
@@ -73,4 +74,16 @@ void ShutdownGui();
 
 void LoadPeers(GuiState& state);
 void SavePeers(const GuiState& state);
+
+#if defined(_DEBUG) || !defined(NDEBUG)
+struct DebugState {
+    bool showDebugWindow = true;
+    int fakePeerCounter = 1;
+    int simulatedStreamCount = 0; // 0 = avatars only, 1..4 = simulated video feeds grid
+    bool autoCycleVAD = false;
+    float cycleTimer = 0.0f;
+};
+extern DebugState g_debug;
+void RenderDebugWindow();
+#endif
 
