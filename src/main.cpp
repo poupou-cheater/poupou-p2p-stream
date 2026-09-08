@@ -116,9 +116,36 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         return HTCLIENT;
     }
 
+    case WM_ENTERSIZEMOVE:
+        SetTimer(hWnd, 1, 16, nullptr);
+        return 0;
+
+    case WM_EXITSIZEMOVE:
+        KillTimer(hWnd, 1);
+        return 0;
+
+    case WM_TIMER:
+        if (wParam == 1) {
+            if (g_guiInitialized && g_dx.pd3dDevice != nullptr && g_dx.pSwapChain != nullptr) {
+                const float clearColor[4] = { 0.067f, 0.071f, 0.082f, 1.00f };
+                g_dx.BeginFrame(clearColor);
+                RenderGui(hWnd, g_dx);
+                g_dx.EndFrame();
+            }
+        }
+        return 0;
+
     case WM_SIZE:
         if (g_dx.pd3dDevice != nullptr && wParam != SIZE_MINIMIZED) {
-            g_dx.Resize((UINT)LOWORD(lParam), (UINT)HIWORD(lParam));
+            UINT w = (UINT)LOWORD(lParam);
+            UINT h = (UINT)HIWORD(lParam);
+            g_dx.Resize(w, h);
+            if (g_guiInitialized && g_dx.pSwapChain != nullptr) {
+                const float clearColor[4] = { 0.067f, 0.071f, 0.082f, 1.00f };
+                g_dx.BeginFrame(clearColor);
+                RenderGui(hWnd, g_dx);
+                g_dx.EndFrame();
+            }
         }
         return 0;
 

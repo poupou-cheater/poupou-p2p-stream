@@ -25,6 +25,7 @@ void IconManager::Cleanup() {
         }
     }
     m_textures.clear();
+    m_textureSizes.clear();
     m_device = nullptr;
 }
 
@@ -147,6 +148,13 @@ ID3D11ShaderResourceView* IconManager::GetImageTexture(const std::string& imageP
 
     auto it = m_textures.find(resolved);
     if (it != m_textures.end()) {
+        if (outWidth || outHeight) {
+            auto sIt = m_textureSizes.find(resolved);
+            if (sIt != m_textureSizes.end()) {
+                if (outWidth) *outWidth = sIt->second.first;
+                if (outHeight) *outHeight = sIt->second.second;
+            }
+        }
         return it->second;
     }
 
@@ -234,6 +242,7 @@ ID3D11ShaderResourceView* IconManager::GetImageTexture(const std::string& imageP
 
     if (SUCCEEDED(hr)) {
         m_textures[resolved] = srv;
+        m_textureSizes[resolved] = { (int)width, (int)height };
         if (outWidth) *outWidth = (int)width;
         if (outHeight) *outHeight = (int)height;
         return srv;

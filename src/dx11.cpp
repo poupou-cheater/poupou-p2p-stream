@@ -124,6 +124,11 @@ void Dx11Context::CleanupRenderTarget() {
 
 void Dx11Context::Resize(UINT width, UINT height) {
     if (!pSwapChain) return;
+    if (pd3dDeviceContext) {
+        ID3D11RenderTargetView* nullRtv = nullptr;
+        pd3dDeviceContext->OMSetRenderTargets(1, &nullRtv, nullptr);
+        pd3dDeviceContext->Flush();
+    }
     CleanupRenderTarget();
     pSwapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
     CreateRenderTarget();

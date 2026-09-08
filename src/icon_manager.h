@@ -49,4 +49,5 @@ private:
 
     ID3D11Device* m_device = nullptr;
     std::unordered_map<std::string, ID3D11ShaderResourceView*> m_textures;
+    std::unordered_map<std::string, std::pair<int, int>> m_textureSizes;
 };
