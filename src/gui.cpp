@@ -566,7 +566,6 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PopStyleVar(2);
 
     ImDrawList* drawList = ImGui::GetWindowDrawList();
-    ImDrawList* fgDrawList = ImGui::GetForegroundDrawList();
     ImVec2 winPos = ImGui::GetWindowPos();
 
     // Requirement 2: TopBar background is 100% transparent. No giant black/grey bar across the screen.
@@ -673,22 +672,26 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
         ImGui::InvisibleButton(btnId.c_str(), ImVec2(avatarDiam, avatarDiam));
         bool isHovered = ImGui::IsItemHovered();
 
-        DrawCircularAvatar(fgDrawList, defaultAvatarTex, center, topAvatarRadius, peer->name);
+        DrawCircularAvatar(drawList, defaultAvatarTex, center, topAvatarRadius, peer->name);
 
         // Status rings
         if (peer->status == PeerStatus::Waiting) {
             float pulse = 1.0f + 0.08f * sinf((float)ImGui::GetTime() * 4.0f);
-            fgDrawList->AddCircle(center, topAvatarRadius * pulse, IM_COL32(255, 204, 0, 230), 32, 2.2f * g_dpiScale);
+            drawList->AddCircle(center, topAvatarRadius * pulse, IM_COL32(255, 204, 0, 230), 32, 2.2f * g_dpiScale);
         } else if (peer->status == PeerStatus::Online && peer->isSpeaking) {
-            fgDrawList->AddCircle(center, topAvatarRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.5f * g_dpiScale);
+            drawList->AddCircle(center, topAvatarRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.5f * g_dpiScale);
             float glow = 2.0f + 1.5f * sinf((float)ImGui::GetTime() * 6.0f);
-            fgDrawList->AddCircle(center, topAvatarRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.8f * g_dpiScale);
+            drawList->AddCircle(center, topAvatarRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.8f * g_dpiScale);
         }
 
         // Item 5: Visual Mute / Deafen badge on peer avatar
-        DrawAvatarAudioBadge(fgDrawList, center, topAvatarRadius, peer->isMuted, peer->isDeafened);
+        DrawAvatarAudioBadge(drawList, center, topAvatarRadius, peer->isMuted, peer->isDeafened);
 
         if (isHovered) {
+            ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.12f, 0.13f, 0.16f, 0.98f));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.27f, 0.33f, 1.00f));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * g_dpiScale, 8.0f * g_dpiScale));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f * g_dpiScale);
             ImGui::BeginTooltip();
             ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.98f, 1.0f), "%s", peer->name.c_str());
             if (peer->status == PeerStatus::Waiting) {
@@ -707,6 +710,8 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
             }
             ImGui::TextDisabled("Right-click for options");
             ImGui::EndTooltip();
+            ImGui::PopStyleVar(2);
+            ImGui::PopStyleColor(2);
         }
 
         if (ImGui::BeginPopupContextItem(btnId.c_str(), ImGuiPopupFlags_MouseButtonRight)) {
@@ -744,19 +749,23 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
         ImGui::InvisibleButton("##top_me_avatar", ImVec2(avatarDiam, avatarDiam));
         bool meHovered = ImGui::IsItemHovered();
 
-        DrawCircularAvatar(fgDrawList, defaultAvatarTex, center, topAvatarRadius, "Me");
+        DrawCircularAvatar(drawList, defaultAvatarTex, center, topAvatarRadius, "Me");
 
         // Speech glowing green ring ONLY when speaking
         if (g_state.isMicSpeaking) {
-            fgDrawList->AddCircle(center, topAvatarRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.5f * g_dpiScale);
+            drawList->AddCircle(center, topAvatarRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.5f * g_dpiScale);
             float glow = 2.0f + 1.5f * sinf((float)ImGui::GetTime() * 6.0f);
-            fgDrawList->AddCircle(center, topAvatarRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.8f * g_dpiScale);
+            drawList->AddCircle(center, topAvatarRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.8f * g_dpiScale);
         }
 
         // Item 5: Visual Mute / Deafen badge on 'me' avatar
-        DrawAvatarAudioBadge(fgDrawList, center, topAvatarRadius, g_state.isMicMuted, g_state.isAudioDeafened);
+        DrawAvatarAudioBadge(drawList, center, topAvatarRadius, g_state.isMicMuted, g_state.isAudioDeafened);
 
         if (meHovered) {
+            ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.12f, 0.13f, 0.16f, 0.98f));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.27f, 0.33f, 1.00f));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * g_dpiScale, 8.0f * g_dpiScale));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f * g_dpiScale);
             ImGui::BeginTooltip();
             ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.98f, 1.0f), "Host: Me (Local User)");
             ImGui::TextDisabled(g_state.isMicSpeaking ? "Status: Speaking" : "Status: Connected (Silent)");
@@ -767,6 +776,8 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
             }
             ImGui::TextDisabled("Right-click for audio / mic options");
             ImGui::EndTooltip();
+            ImGui::PopStyleVar(2);
+            ImGui::PopStyleColor(2);
         }
 
         if (ImGui::BeginPopupContextItem("##top_me_avatar", ImGuiPopupFlags_MouseButtonRight)) {
@@ -781,7 +792,7 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
 
     // =========================================================================
     // Item 1 & 3: Middle Tab Buttons (home, current connection, setting)
-    // 100% Solid opaque rounded rectangle with AddRectFilled(#2B2D31) on ForegroundDrawList
+    // 100% Solid opaque rounded rectangle with AddRectFilled(#2B2D31) on window drawList
     // Single AddText call eliminates text doubling/superposition
     // =========================================================================
     float navY = (headerHeight - navBtnHeight) * 0.5f;
@@ -794,8 +805,8 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImVec2 tabCapMax(winPos.x + xSet + wSet + tabCapPadX, winPos.y + navY + navBtnHeight + tabCapPadY);
     float tabCapRounding = 12.0f * g_dpiScale;
 
-    fgDrawList->AddRectFilled(tabCapMin, tabCapMax, COLOR_CAPSULE_BG, tabCapRounding);
-    fgDrawList->AddRect(tabCapMin, tabCapMax, COLOR_CAPSULE_BORDER, tabCapRounding, 0, 1.0f * g_dpiScale);
+    drawList->AddRectFilled(tabCapMin, tabCapMax, COLOR_CAPSULE_BG, tabCapRounding);
+    drawList->AddRect(tabCapMin, tabCapMax, COLOR_CAPSULE_BORDER, tabCapRounding, 0, 1.0f * g_dpiScale);
 
     auto DrawSolidTabButton = [&](const char* label, float x, float w, AppTab tab, const char* btnId) {
         ImGui::SetCursorPos(ImVec2(x, navY));
@@ -807,16 +818,14 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
         bool isHover = (mousePos.x >= bMin.x && mousePos.x <= bMax.x && mousePos.y >= bMin.y && mousePos.y <= bMax.y);
         bool isDown = ImGui::GetIO().MouseDown[0];
 
-        ImDrawList* fg = ImGui::GetForegroundDrawList();
-
         if (isSelected) {
             ImU32 selCol = isHover ? IM_COL32(110, 40, 54, 255) : IM_COL32(92, 36, 46, 255);
-            fg->AddRectFilled(bMin, bMax, selCol, 8.0f * g_dpiScale);
-            fg->AddRect(bMin, bMax, IM_COL32(138, 54, 69, 255), 8.0f * g_dpiScale, 0, 1.0f * g_dpiScale);
+            drawList->AddRectFilled(bMin, bMax, selCol, 8.0f * g_dpiScale);
+            drawList->AddRect(bMin, bMax, IM_COL32(138, 54, 69, 255), 8.0f * g_dpiScale, 0, 1.0f * g_dpiScale);
         } else if (isHover) {
             ImU32 hovCol = isDown ? IM_COL32(24, 25, 28, 255) : IM_COL32(48, 50, 58, 255);
-            fg->AddRectFilled(bMin, bMax, hovCol, 8.0f * g_dpiScale);
-            fg->AddRect(bMin, bMax, IM_COL32(75, 80, 95, 200), 8.0f * g_dpiScale, 0, 1.0f * g_dpiScale);
+            drawList->AddRectFilled(bMin, bMax, hovCol, 8.0f * g_dpiScale);
+            drawList->AddRect(bMin, bMax, IM_COL32(75, 80, 95, 200), 8.0f * g_dpiScale, 0, 1.0f * g_dpiScale);
         }
         // When not selected and not hovered, seamless background of COLOR_CAPSULE_BG (#1E1F22)
 
@@ -825,11 +834,11 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
             g_state.currentTab = tab;
         }
 
-        // Draw text ONCE strictly on fgDrawList (eliminates double text superposition)
+        // Draw text ONCE strictly on drawList (eliminates double text superposition)
         ImU32 textCol = isSelected ? IM_COL32(255, 255, 255, 255) : (isHover ? IM_COL32(245, 245, 250, 255) : IM_COL32(219, 222, 225, 255));
         ImVec2 tSize = ImGui::CalcTextSize(label);
         ImVec2 tPos(bMin.x + (w - tSize.x) * 0.5f, bMin.y + (navBtnHeight - tSize.y) * 0.5f);
-        fg->AddText(tPos, textCol, label);
+        drawList->AddText(tPos, textCol, label);
     };
 
     DrawSolidTabButton("home", homeX, wHome, AppTab::Home, "##tab_home");
@@ -838,7 +847,7 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
 
     ImGui::SetWindowFontScale(1.0f); // Reset font scale back to nominal
 
-    // Dynamic System controls pill on ForegroundDrawList
+    // Dynamic System controls pill on TopBar window drawList
     // Positioned using topY to guarantee it stays in the TopBar, englobing [ Debug ] [ — ] [ ▢ ] [ ✕ ]
 
     float btnSize = 34.0f * g_dpiScale;
@@ -877,8 +886,8 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImVec2 rectMax(rectMin.x + capW, rectMin.y + capH);
 
     // Dark pill background (#1E1F22 opaque) harmonized strictly with top tabs capsule
-    fgDrawList->AddRectFilled(rectMin, rectMax, COLOR_CAPSULE_BG, 12.0f * g_dpiScale);
-    fgDrawList->AddRect(rectMin, rectMax, COLOR_CAPSULE_BORDER, 12.0f * g_dpiScale, 0, 1.0f);
+    drawList->AddRectFilled(rectMin, rectMax, COLOR_CAPSULE_BG, 12.0f * g_dpiScale);
+    drawList->AddRect(rectMin, rectMax, COLOR_CAPSULE_BORDER, 12.0f * g_dpiScale, 0, 1.0f);
 
     float curRightX = capX + capPadX;
 
@@ -900,10 +909,10 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
         ImGui::PopStyleColor(3);
 
         ImU32 dbgBg = g_debug.showDebugWindow ? IM_COL32(122, 51, 64, 255) : (dbgHovered ? IM_COL32(48, 52, 68, 255) : COLOR_CAPSULE_BG);
-        fgDrawList->AddRectFilled(dbgScreenMin, dbgScreenMax, dbgBg, 7.0f * g_dpiScale);
-        fgDrawList->AddRect(dbgScreenMin, dbgScreenMax, COLOR_CAPSULE_BORDER, 7.0f * g_dpiScale, 0, 1.0f);
+        drawList->AddRectFilled(dbgScreenMin, dbgScreenMax, dbgBg, 7.0f * g_dpiScale);
+        drawList->AddRect(dbgScreenMin, dbgScreenMax, COLOR_CAPSULE_BORDER, 7.0f * g_dpiScale, 0, 1.0f);
         ImVec2 dbgTextSize = ImGui::CalcTextSize("Debug");
-        fgDrawList->AddText(ImVec2(dbgScreenMin.x + (dbgBtnW - dbgTextSize.x) * 0.5f, dbgScreenMin.y + (dbgBtnH - dbgTextSize.y) * 0.5f), IM_COL32(240, 242, 250, 255), "Debug");
+        drawList->AddText(ImVec2(dbgScreenMin.x + (dbgBtnW - dbgTextSize.x) * 0.5f, dbgScreenMin.y + (dbgBtnH - dbgTextSize.y) * 0.5f), IM_COL32(240, 242, 250, 255), "Debug");
 
         if (dbgHovered) ImGui::SetTooltip("Toggle Debug & Simulation Tools (F12)");
 
@@ -924,11 +933,11 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PopStyleColor(3);
 
     if (minHovered) {
-        fgDrawList->AddRectFilled(minBtnPos, ImVec2(minBtnPos.x + btnSize, minBtnPos.y + btnSize), IM_COL32(51, 56, 71, 255), 7.0f * g_dpiScale);
+        drawList->AddRectFilled(minBtnPos, ImVec2(minBtnPos.x + btnSize, minBtnPos.y + btnSize), IM_COL32(51, 56, 71, 255), 7.0f * g_dpiScale);
     }
-    fgDrawList->AddLine(ImVec2(minBtnPos.x + 9.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
-                        ImVec2(minBtnPos.x + btnSize - 9.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
-                        IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
+    drawList->AddLine(ImVec2(minBtnPos.x + 9.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
+                      ImVec2(minBtnPos.x + btnSize - 9.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
+                      IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
     curRightX += btnSize + btnGap;
 
     // Maximize / Restore (□)
@@ -948,12 +957,12 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PopStyleColor(3);
 
     if (maxHovered) {
-        fgDrawList->AddRectFilled(maxBtnPos, ImVec2(maxBtnPos.x + btnSize, maxBtnPos.y + btnSize), IM_COL32(51, 56, 71, 255), 7.0f * g_dpiScale);
+        drawList->AddRectFilled(maxBtnPos, ImVec2(maxBtnPos.x + btnSize, maxBtnPos.y + btnSize), IM_COL32(51, 56, 71, 255), 7.0f * g_dpiScale);
     }
     float boxPad = 9.0f * g_dpiScale;
-    fgDrawList->AddRect(ImVec2(maxBtnPos.x + boxPad, maxBtnPos.y + boxPad),
-                        ImVec2(maxBtnPos.x + btnSize - boxPad, maxBtnPos.y + btnSize - boxPad),
-                        IM_COL32(220, 220, 230, 255), 1.0f, 0, 1.5f * g_dpiScale);
+    drawList->AddRect(ImVec2(maxBtnPos.x + boxPad, maxBtnPos.y + boxPad),
+                      ImVec2(maxBtnPos.x + btnSize - boxPad, maxBtnPos.y + btnSize - boxPad),
+                      IM_COL32(220, 220, 230, 255), 1.0f, 0, 1.5f * g_dpiScale);
     curRightX += btnSize + btnGap;
 
     // Close (✕)
@@ -969,15 +978,15 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PopStyleColor(3);
 
     if (closeHovered) {
-        fgDrawList->AddRectFilled(closeBtnPos, ImVec2(closeBtnPos.x + btnSize, closeBtnPos.y + btnSize), IM_COL32(217, 38, 46, 255), 7.0f * g_dpiScale);
+        drawList->AddRectFilled(closeBtnPos, ImVec2(closeBtnPos.x + btnSize, closeBtnPos.y + btnSize), IM_COL32(217, 38, 46, 255), 7.0f * g_dpiScale);
     }
     float crossPad = 10.0f * g_dpiScale;
-    fgDrawList->AddLine(ImVec2(closeBtnPos.x + crossPad, closeBtnPos.y + crossPad),
-                        ImVec2(closeBtnPos.x + btnSize - crossPad, closeBtnPos.y + btnSize - crossPad),
-                        IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
-    fgDrawList->AddLine(ImVec2(closeBtnPos.x + btnSize - crossPad, closeBtnPos.y + crossPad),
-                        ImVec2(closeBtnPos.x + crossPad, closeBtnPos.y + btnSize - crossPad),
-                        IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
+    drawList->AddLine(ImVec2(closeBtnPos.x + crossPad, closeBtnPos.y + crossPad),
+                      ImVec2(closeBtnPos.x + btnSize - crossPad, closeBtnPos.y + btnSize - crossPad),
+                      IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
+    drawList->AddLine(ImVec2(closeBtnPos.x + btnSize - crossPad, closeBtnPos.y + crossPad),
+                      ImVec2(closeBtnPos.x + crossPad, closeBtnPos.y + btnSize - crossPad),
+                      IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
 
     ImGui::SetCursorPos(ImVec2(16.0f * g_dpiScale, headerHeight + 10.0f * g_dpiScale));
     ImGui::Dummy(ImVec2(0.0f, 0.0f));
@@ -1438,19 +1447,6 @@ static std::string CleanStreamTitle(const std::string& rawName) {
     return (start < rawName.size()) ? rawName.substr(start) : rawName;
 }
 
-// Standard clean 6-dot vector grip handle with balanced proportions (well spaced, never cramped)
-static void DrawGripHandle(ImDrawList* drawList, ImVec2 center, ImU32 color) {
-    float dotR = 1.35f * g_dpiScale;
-    float dx = 4.8f * g_dpiScale;
-    float dy = 5.2f * g_dpiScale;
-    for (int c = 0; c < 2; ++c) {
-        float x = center.x + ((float)c - 0.5f) * dx;
-        for (int r = -1; r <= 1; ++r) {
-            float y = center.y + (float)r * dy;
-            drawList->AddCircleFilled(ImVec2(x, y), dotR, color);
-        }
-    }
-}
 
 // Requirement 2: Multi-stream grid cell video helper:
 // Maximizes tile space without deforming ratio (no stretch) and without excessive zoom that cuts content
@@ -1747,7 +1743,7 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
             float btnH28 = 28.0f * g_dpiScale;
             float leftBadgeX = 24.0f * g_dpiScale;
 
-            // Discreet Stream Name Badge (Duplicate "Grille" button removed per Requirement 4)
+            // Stream Name Badge (Clean, without grip handle or dots)
             float titlePadX = 10.0f * g_dpiScale;
             std::string fTitle = CleanStreamTitle(stream.name);
             ImVec2 fTextSize = ImGui::CalcTextSize(fTitle.c_str());
@@ -1755,19 +1751,14 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
             bool isFocusMute = (stream.peerPtr && stream.peerPtr->isMuted) || (stream.isMe && g_state.isMicMuted);
             float fBadgeExtra = (isFocusDeaf || isFocusMute) ? 24.0f * g_dpiScale : 0.0f;
 
-            float gripWidth = 16.0f * g_dpiScale;
-            float fTagW = titlePadX + gripWidth + 4.0f * g_dpiScale + fTextSize.x + titlePadX + fBadgeExtra;
+            float fTagW = titlePadX * 2.0f + fTextSize.x + fBadgeExtra;
             ImVec2 fTagMin(leftBadgeX, focusHeaderY);
             ImVec2 fTagMax(fTagMin.x + fTagW, focusHeaderY + btnH28);
 
             drawList->AddRectFilled(fTagMin, fTagMax, COLOR_CAPSULE_BG, 6.0f * g_dpiScale);
             drawList->AddRect(fTagMin, fTagMax, COLOR_CAPSULE_BORDER, 6.0f * g_dpiScale, 0, 1.0f);
 
-            // Standardized vector drag handle grip (clean 6 dots, well-spaced)
-            ImVec2 gripCenter(fTagMin.x + titlePadX + gripWidth * 0.5f, fTagMin.y + btnH28 * 0.5f);
-            DrawGripHandle(drawList, gripCenter, IM_COL32(160, 168, 185, 255));
-
-            float textDrawX = fTagMin.x + titlePadX + gripWidth + 5.0f * g_dpiScale;
+            float textDrawX = fTagMin.x + titlePadX;
             drawList->AddText(ImVec2(textDrawX, fTagMin.y + (btnH28 - fTextSize.y) * 0.5f), IM_COL32(230, 235, 245, 255), fTitle.c_str());
 
             if (isFocusDeaf || isFocusMute) {
@@ -1960,22 +1951,14 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
                     bool isTileMute = (stream.peerPtr && stream.peerPtr->isMuted) || (stream.isMe && g_state.isMicMuted);
                     float audioBadgeW = (isTileDeaf || isTileMute) ? 24.0f * g_dpiScale : 0.0f;
 
-                    float gripWidth = 16.0f * g_dpiScale;
-                    float titleW = titlePadX + gripWidth + 4.0f * g_dpiScale + tTextSize.x + titlePadX + (stream.isSpeaking ? 16.0f * g_dpiScale : 0.0f) + audioBadgeW;
+                    float titleW = titlePadX * 2.0f + tTextSize.x + audioBadgeW;
                     ImVec2 tMax(tMin.x + titleW, tMin.y + titleH);
 
                     drawList->AddRectFilled(tMin, tMax, COLOR_CAPSULE_BG, 6.0f * g_dpiScale);
-                    drawList->AddRect(tMin, tMax, COLOR_CAPSULE_BORDER, 6.0f * g_dpiScale, 0, 1.0f);
+                    ImU32 borderCol = stream.isSpeaking ? IM_COL32(72, 224, 110, 255) : COLOR_CAPSULE_BORDER;
+                    drawList->AddRect(tMin, tMax, borderCol, 6.0f * g_dpiScale, 0, stream.isSpeaking ? 1.5f * g_dpiScale : 1.0f);
 
-                    // Standardized vector drag handle grip (clean 6 dots, well-spaced)
-                    ImVec2 gripCenter(tMin.x + titlePadX + gripWidth * 0.5f, tMin.y + titleH * 0.5f);
-                    DrawGripHandle(drawList, gripCenter, IM_COL32(160, 168, 185, 255));
-
-                    float textDrawX = tMin.x + titlePadX + gripWidth + 5.0f * g_dpiScale;
-                    if (stream.isSpeaking) {
-                        drawList->AddCircleFilled(ImVec2(textDrawX + 4.0f * g_dpiScale, tMin.y + titleH * 0.5f), 3.5f * g_dpiScale, IM_COL32(72, 224, 110, 255));
-                        textDrawX += 14.0f * g_dpiScale;
-                    }
+                    float textDrawX = tMin.x + titlePadX;
                     drawList->AddText(ImVec2(textDrawX, tMin.y + (titleH - tTextSize.y) * 0.5f), IM_COL32(230, 235, 245, 255), titleStr.c_str());
 
                     if (isTileDeaf || isTileMute) {
@@ -3101,11 +3084,7 @@ void RenderGui(HWND hWnd, Dx11Context& dx) {
     if (g_state.currentTab == AppTab::CurrentConnection) {
         // Fullscreen edge-to-edge video canvas first
         RenderCurrentConnectionView(windowWidth, windowHeight);
-        // Header drawn on top so topbar is completely transparent above video
-        RenderHeader(hWnd, windowWidth);
     } else {
-        // Standard header for Home and Settings
-        RenderHeader(hWnd, windowWidth);
         float contentWidth = windowWidth;
         float contentHeight = windowHeight - 74.0f * g_dpiScale;
         if (g_state.currentTab == AppTab::Home) {
@@ -3114,6 +3093,9 @@ void RenderGui(HWND hWnd, Dx11Context& dx) {
             RenderSettingsView(contentWidth, contentHeight);
         }
     }
+
+    // TopBar header drawn strictly on top of all views (highest z-order, transparent overlay)
+    RenderHeader(hWnd, windowWidth);
 
     // 3. Modals
     RenderModals();
