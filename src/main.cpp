@@ -280,9 +280,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
             const wchar_t* pShot = wcsstr(cmdLine, L"--screenshot=");
             if (pShot) {
                 pShot += 13;
+                bool inQuotes = (*pShot == L'"');
+                if (inQuotes) pShot++;
                 wchar_t pathBuf[MAX_PATH] = { 0 };
                 int idx = 0;
-                while (*pShot && *pShot != L' ' && idx < MAX_PATH - 1) {
+                while (*pShot && (inQuotes ? (*pShot != L'"') : (*pShot != L' ')) && idx < MAX_PATH - 1) {
                     pathBuf[idx++] = *pShot++;
                 }
                 g_dx.SaveScreenshot(pathBuf);

@@ -174,7 +174,12 @@ void LoadPeers(GuiState& state) {
                 std::string key = line.substr(0, eq);
                 std::string val = line.substr(eq + 1);
                 if (key == "ip") currentPeer.ip = val;
-                else if (key == "name") currentPeer.name = val;
+                else if (key == "name") {
+                    // Aggressively sanitize any leading colons or spaces (e.g. ":: WaitingPeer_3")
+                    size_t s = 0;
+                    while (s < val.size() && (val[s] == ':' || val[s] == ' ' || val[s] == '\t')) s++;
+                    currentPeer.name = (s < val.size()) ? val.substr(s) : val;
+                }
                 else if (key == "favorite") currentPeer.isFavorite = (val == "1");
                 else if (key == "status") {
                     if (val == "online") currentPeer.status = PeerStatus::Online;
@@ -1424,11 +1429,20 @@ static void DrawVideoCover(ImDrawList* drawList, ImTextureID texture, ImVec2 box
     drawList->AddImage(texture, boxMin, boxMax, uv0, uv1, IM_COL32_WHITE);
 }
 
-// Explicit 6-dot drag grip handle for draggable stream tiles
+// Helper: Aggressively sanitize any stream / peer name to eliminate any residual "::", ":::", or leading colons/spaces
+static std::string CleanStreamTitle(const std::string& rawName) {
+    size_t start = 0;
+    while (start < rawName.size() && (rawName[start] == ':' || rawName[start] == ' ' || rawName[start] == '\t')) {
+        start++;
+    }
+    return (start < rawName.size()) ? rawName.substr(start) : rawName;
+}
+
+// Standard clean 6-dot vector grip handle with balanced proportions (well spaced, never cramped)
 static void DrawGripHandle(ImDrawList* drawList, ImVec2 center, ImU32 color) {
-    float dotR = 1.3f * g_dpiScale;
-    float dx = 3.6f * g_dpiScale;
-    float dy = 4.2f * g_dpiScale;
+    float dotR = 1.35f * g_dpiScale;
+    float dx = 4.8f * g_dpiScale;
+    float dy = 5.2f * g_dpiScale;
     for (int c = 0; c < 2; ++c) {
         float x = center.x + ((float)c - 0.5f) * dx;
         for (int r = -1; r <= 1; ++r) {
@@ -1549,7 +1563,7 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     }
     for (auto& peer : g_state.peers) {
         if (peer.status == PeerStatus::Online && !peer.isStreamHidden) {
-            streamList.push_back({ peer.name, "remote screen", false, &peer, peer.isSpeaking });
+            streamList.push_back({ CleanStreamTitle(peer.name), "remote screen", false, &peer, peer.isSpeaking });
         }
     }
 
@@ -1560,14 +1574,14 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
         for (auto& peer : g_state.peers) {
             if (peer.status == PeerStatus::Online && !peer.isStreamHidden) {
                 if ((int)streamList.size() < simNeeded) {
-                    streamList.push_back({ peer.name, "remote screen", false, &peer, peer.isSpeaking });
+                    streamList.push_back({ CleanStreamTitle(peer.name), "remote screen", false, &peer, peer.isSpeaking });
                 }
             }
         }
         int fakeIdx = 1;
         while ((int)streamList.size() < simNeeded) {
             std::string sName = (fakeIdx == 1) ? "Helldivers Stream" : ("Squad Stream #" + std::to_string(fakeIdx));
-            streamList.push_back({ sName, "simulated 1080p", false, nullptr, false });
+            streamList.push_back({ CleanStreamTitle(sName), "simulated 1080p", false, nullptr, false });
             fakeIdx++;
         }
     }
@@ -1735,13 +1749,13 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
 
             // Discreet Stream Name Badge (Duplicate "Grille" button removed per Requirement 4)
             float titlePadX = 10.0f * g_dpiScale;
-            std::string fTitle = stream.name;
+            std::string fTitle = CleanStreamTitle(stream.name);
             ImVec2 fTextSize = ImGui::CalcTextSize(fTitle.c_str());
             bool isFocusDeaf = (stream.peerPtr && stream.peerPtr->isDeafened) || (stream.isMe && g_state.isAudioDeafened);
             bool isFocusMute = (stream.peerPtr && stream.peerPtr->isMuted) || (stream.isMe && g_state.isMicMuted);
             float fBadgeExtra = (isFocusDeaf || isFocusMute) ? 24.0f * g_dpiScale : 0.0f;
 
-            float gripWidth = 14.0f * g_dpiScale;
+            float gripWidth = 16.0f * g_dpiScale;
             float fTagW = titlePadX + gripWidth + 4.0f * g_dpiScale + fTextSize.x + titlePadX + fBadgeExtra;
             ImVec2 fTagMin(leftBadgeX, focusHeaderY);
             ImVec2 fTagMax(fTagMin.x + fTagW, focusHeaderY + btnH28);
@@ -1749,11 +1763,11 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
             drawList->AddRectFilled(fTagMin, fTagMax, COLOR_CAPSULE_BG, 6.0f * g_dpiScale);
             drawList->AddRect(fTagMin, fTagMax, COLOR_CAPSULE_BORDER, 6.0f * g_dpiScale, 0, 1.0f);
 
-            // Requirement 1: Explicit 6-dot drag handle grip
-            ImVec2 gripCenter(fTagMin.x + titlePadX + gripWidth * 0.4f, fTagMin.y + btnH28 * 0.5f);
-            DrawGripHandle(drawList, gripCenter, IM_COL32(150, 155, 175, 255));
+            // Standardized vector drag handle grip (clean 6 dots, well-spaced)
+            ImVec2 gripCenter(fTagMin.x + titlePadX + gripWidth * 0.5f, fTagMin.y + btnH28 * 0.5f);
+            DrawGripHandle(drawList, gripCenter, IM_COL32(160, 168, 185, 255));
 
-            float textDrawX = fTagMin.x + titlePadX + gripWidth + 4.0f * g_dpiScale;
+            float textDrawX = fTagMin.x + titlePadX + gripWidth + 5.0f * g_dpiScale;
             drawList->AddText(ImVec2(textDrawX, fTagMin.y + (btnH28 - fTextSize.y) * 0.5f), IM_COL32(230, 235, 245, 255), fTitle.c_str());
 
             if (isFocusDeaf || isFocusMute) {
@@ -1939,25 +1953,25 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
                     float titlePadX = 10.0f * g_dpiScale;
                     float headerY = (sr.min.y < 5.0f) ? (headerHeight + 10.0f * g_dpiScale) : (sr.min.y + 10.0f * g_dpiScale);
                     ImVec2 tMin(sr.min.x + 12.0f * g_dpiScale, headerY);
-                    std::string titleStr = stream.name; // Requirement 1: Explicit name without ':::' text prefix
+                    std::string titleStr = CleanStreamTitle(stream.name);
                     ImVec2 tTextSize = ImGui::CalcTextSize(titleStr.c_str());
 
                     bool isTileDeaf = (stream.peerPtr && stream.peerPtr->isDeafened) || (stream.isMe && g_state.isAudioDeafened);
                     bool isTileMute = (stream.peerPtr && stream.peerPtr->isMuted) || (stream.isMe && g_state.isMicMuted);
                     float audioBadgeW = (isTileDeaf || isTileMute) ? 24.0f * g_dpiScale : 0.0f;
 
-                    float gripWidth = 14.0f * g_dpiScale;
+                    float gripWidth = 16.0f * g_dpiScale;
                     float titleW = titlePadX + gripWidth + 4.0f * g_dpiScale + tTextSize.x + titlePadX + (stream.isSpeaking ? 16.0f * g_dpiScale : 0.0f) + audioBadgeW;
                     ImVec2 tMax(tMin.x + titleW, tMin.y + titleH);
 
                     drawList->AddRectFilled(tMin, tMax, COLOR_CAPSULE_BG, 6.0f * g_dpiScale);
                     drawList->AddRect(tMin, tMax, COLOR_CAPSULE_BORDER, 6.0f * g_dpiScale, 0, 1.0f);
 
-                    // Requirement 1: Draw the explicit 6-dot drag handle grip
-                    ImVec2 gripCenter(tMin.x + titlePadX + gripWidth * 0.4f, tMin.y + titleH * 0.5f);
-                    DrawGripHandle(drawList, gripCenter, IM_COL32(150, 155, 175, 255));
+                    // Standardized vector drag handle grip (clean 6 dots, well-spaced)
+                    ImVec2 gripCenter(tMin.x + titlePadX + gripWidth * 0.5f, tMin.y + titleH * 0.5f);
+                    DrawGripHandle(drawList, gripCenter, IM_COL32(160, 168, 185, 255));
 
-                    float textDrawX = tMin.x + titlePadX + gripWidth + 4.0f * g_dpiScale;
+                    float textDrawX = tMin.x + titlePadX + gripWidth + 5.0f * g_dpiScale;
                     if (stream.isSpeaking) {
                         drawList->AddCircleFilled(ImVec2(textDrawX + 4.0f * g_dpiScale, tMin.y + titleH * 0.5f), 3.5f * g_dpiScale, IM_COL32(72, 224, 110, 255));
                         textDrawX += 14.0f * g_dpiScale;
@@ -1999,7 +2013,8 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
                         ImGui::SetDragDropPayload("DND_STREAM_SLOT", &slot, sizeof(int));
                         ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.08f, 0.09f, 0.12f, 0.90f));
                         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * g_dpiScale, 8.0f * g_dpiScale));
-                        ImGui::TextColored(ImVec4(0.45f, 0.72f, 1.0f, 1.0f), "%s", stream.name.c_str());
+                        std::string dndName = CleanStreamTitle(stream.name);
+                        ImGui::TextColored(ImVec4(0.45f, 0.72f, 1.0f, 1.0f), "%s", dndName.c_str());
                         if (streamTex) {
                             float prevW = 160.0f * g_dpiScale;
                             float prevH = 90.0f * g_dpiScale;
@@ -2026,7 +2041,7 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
 
                     // Right-click context menu on stream
                     if (ImGui::BeginPopupContextItem(cellBtnId.c_str(), ImGuiPopupFlags_MouseButtonRight)) {
-                        ImGui::Text("%s Options", stream.name.c_str());
+                        ImGui::Text("%s Options", CleanStreamTitle(stream.name).c_str());
                         ImGui::Separator();
                         if (ImGui::MenuItem("Mode Focus (Plein écran)")) {
                             g_state.focusedStreamIndex = slot;
@@ -2153,7 +2168,7 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
                         ImGui::Text("Emplacement Libre");
                         ImGui::Separator();
                         for (int s = 0; s < streamCount; ++s) {
-                            std::string placeItem = "Placer " + streamList[s].name + " ici";
+                            std::string placeItem = "Placer " + CleanStreamTitle(streamList[s].name) + " ici";
                             if (ImGui::MenuItem(placeItem.c_str())) {
                                 for (int k = 0; k < totalSlots; ++k) {
                                     if (g_state.streamOrder[k] == s) {
