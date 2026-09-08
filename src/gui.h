@@ -23,6 +23,10 @@ struct Peer {
     bool isSpeaking = false;
     float pokeTimer = 0.0f; // Visual feedback timer when poked
     bool isStreamHidden = false; // Hide / show individual stream in grid
+    char focusHotkey[32] = "Ctrl+1";
+    char muteHotkey[32] = "Ctrl+M";
+    int streamQuality = 0; // 0 = 1080p60, 1 = 720p60, 2 = 1080p30
+    bool audioPriority = false;
 };
 
 enum class AppTab {
@@ -62,8 +66,11 @@ struct GuiState {
 
     // Dynamic Video Grid & Layout State
     int focusedStreamIndex = -1;   // -1 = Grid Mode, >= 0 = Focus Mode (Single stream maximized)
+    int gridLayoutMode = 0;        // 0 = Auto, 1 = 1x2 (horizontal split), 2 = 2x1 (vertical split), 3 = 2x2 (4 slots), 4 = 3x2 (6 slots)
     float gridSplitCol = 0.5f;     // 2px Splitter column ratio (0.15f to 0.85f)
     float gridSplitRow = 0.5f;     // 2px Splitter row ratio (0.15f to 0.85f)
+    float rowSplitCol[4] = { 0.5f, 0.5f, 0.5f, 0.5f }; // Independent column split for each row
+    float colSplitRow[4] = { 0.5f, 0.5f, 0.5f, 0.5f }; // Independent row split for each column
     std::vector<int> streamOrder;  // Drag & Drop layout slots
     int draggingSlot = -1;         // Active slot being dragged
     int dragTargetSlot = -1;       // Target slot hovered for drop
