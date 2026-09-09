@@ -33,6 +33,83 @@ static GuiState g_state;
 DebugState g_debug;
 #endif
 
+// =========================================================================
+// UI Auto-Hide & Inactivity Animation State
+// =========================================================================
+static float s_uiVisibility = 1.0f;        // 1.0f = fully visible, 0.0f = completely hidden
+static float s_inactivityTimer = 0.0f;     // timer in seconds
+static bool  s_isMouseInside = true;       // is cursor inside client rect
+static ImVec2 s_lastMousePos = ImVec2(-9999.0f, -9999.0f);
+
+static inline float SmoothEase(float t) {
+    t = ImClamp(t, 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+static void UpdateAutoHideState(HWND hWnd) {
+    ImGuiIO& io = ImGui::GetIO();
+    float dt = io.DeltaTime;
+    if (dt <= 0.0f) dt = 1.0f / 60.0f;
+    if (dt > 0.1f) dt = 0.1f;
+
+    // Detect if mouse cursor is inside the client area of this window
+    POINT pt;
+    if (GetCursorPos(&pt)) {
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+        POINT clientPt = pt;
+        ScreenToClient(hWnd, &clientPt);
+        HWND hwndUnderCursor = WindowFromPoint(pt);
+        bool isUnderThisWindow = (hwndUnderCursor == hWnd || IsChild(hWnd, hwndUnderCursor));
+        s_isMouseInside = (clientPt.x >= rc.left && clientPt.x < rc.right &&
+                           clientPt.y >= rc.top && clientPt.y < rc.bottom &&
+                           isUnderThisWindow);
+    }
+
+    // Detect mouse motion or clicks
+    ImVec2 curPos = io.MousePos;
+    bool mouseMoved = (fabsf(curPos.x - s_lastMousePos.x) > 1.5f || fabsf(curPos.y - s_lastMousePos.y) > 1.5f);
+    bool mouseClicked = (io.MouseDown[0] || io.MouseDown[1] || io.MouseDown[2] || io.MouseWheel != 0.0f);
+
+    // Keep UI visible under conditions that require user interaction
+    bool forceVisible = false;
+    if (!g_state.enableAutoHide) forceVisible = true;
+    if (g_state.currentTab != AppTab::CurrentConnection) forceVisible = true;
+    if (g_state.showRenameModal || g_state.showDeleteModal) forceVisible = true;
+    if (ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) forceVisible = true;
+    if (ImGui::IsAnyItemActive() || ImGui::IsAnyItemFocused()) forceVisible = true;
+    if (g_state.draggingSlot >= 0) forceVisible = true;
+#if defined(_DEBUG) || !defined(NDEBUG)
+    if (g_debug.showDebugWindow) forceVisible = true;
+#endif
+
+    if (forceVisible) {
+        s_inactivityTimer = 0.0f;
+        s_lastMousePos = curPos;
+    } else {
+        if (s_isMouseInside && (mouseMoved || mouseClicked)) {
+            // Instant wake-up upon any mouse motion or click inside window
+            s_inactivityTimer = 0.0f;
+            s_lastMousePos = curPos;
+        } else {
+            s_inactivityTimer += dt;
+        }
+    }
+
+    // Determine target visibility
+    float timeout = s_isMouseInside ? g_state.autoHideDelayInside : g_state.autoHideDelayOutside;
+    if (timeout <= 0.1f) timeout = 0.1f;
+
+    float targetVisibility = (s_inactivityTimer >= timeout && !forceVisible) ? 0.0f : 1.0f;
+
+    // Fast snappy reveal (~0.07s), smooth fluid hide (~0.28s)
+    if (targetVisibility > s_uiVisibility) {
+        s_uiVisibility = fminf(1.0f, s_uiVisibility + dt * 14.0f);
+    } else if (targetVisibility < s_uiVisibility) {
+        s_uiVisibility = fmaxf(0.0f, s_uiVisibility - dt * 3.5f);
+    }
+}
+
 
 // Helper: Draw avatar as a circular disc using custom/fallback texture (default profile picture.png)
 static void DrawCircularAvatar(ImDrawList* drawList, ID3D11ShaderResourceView* tex, ImVec2 center, float radius, const std::string& initials = "", ImU32 fallbackBgCol = IM_COL32(24, 26, 34, 255)) {
@@ -550,16 +627,20 @@ static int GetActiveStreamCount() {
 // Titlebar & Window Header matching the sketch
 static void RenderHeader(HWND hWnd, float windowWidth) {
     float headerHeight = 84.0f * g_dpiScale;
+    float topOffset = (1.0f - SmoothEase(s_uiVisibility)) * (-headerHeight - 40.0f * g_dpiScale);
 
     // Requirement 3 & 4: Isolate TopBar in its own dedicated ImGui window at highest z-order
     // to guarantee 100% click priority over any video or stream tiles beneath
-    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+    ImGui::SetNextWindowPos(ImVec2(0.0f, topOffset));
     ImGui::SetNextWindowSize(ImVec2(windowWidth, headerHeight));
     ImGuiWindowFlags headerFlags = ImGuiWindowFlags_NoDecoration |
                                    ImGuiWindowFlags_NoMove |
                                    ImGuiWindowFlags_NoResize |
                                    ImGuiWindowFlags_NoSavedSettings |
                                    ImGuiWindowFlags_NoBackground;
+    if (s_uiVisibility <= 0.001f) {
+        headerFlags |= ImGuiWindowFlags_NoInputs;
+    }
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::Begin("##TopBarOverlay", nullptr, headerFlags);
@@ -1520,6 +1601,10 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     ImVec2 streamMax = ImVec2(windowWidth, windowHeight);
     drawList->AddRectFilled(streamMin, streamMax, IM_COL32(11, 12, 16, 255));
 
+    // Dynamic Slide Animation offsets
+    float topOffset = (1.0f - SmoothEase(s_uiVisibility)) * (-headerHeight - 40.0f * g_dpiScale);
+    float bottomOffset = (1.0f - SmoothEase(s_uiVisibility)) * (dockHeight + 60.0f * g_dpiScale);
+
     // Dockbar dimensions for overlay & boundary calculations
     float btnW = 46.0f * g_dpiScale;
     float btnH = 40.0f * g_dpiScale;
@@ -1529,14 +1614,16 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     float dockPadX = 14.0f * g_dpiScale;
     float dockWidth = dockInnerW + dockPadX * 2.0f;
     float dockHeight = 56.0f * g_dpiScale;
-    ImVec2 dockMin = ImVec2((windowWidth - dockWidth) * 0.5f, windowHeight - dockHeight - 24.0f * g_dpiScale);
+    float nominalDockY = windowHeight - dockHeight - 24.0f * g_dpiScale;
+    ImVec2 dockMin = ImVec2((windowWidth - dockWidth) * 0.5f, nominalDockY + bottomOffset);
     ImVec2 dockMax = ImVec2(dockMin.x + dockWidth, dockMin.y + dockHeight);
 
-    bool overDock = (io.MousePos.y >= dockMin.y - 12.0f * g_dpiScale && 
+    bool overDock = (s_uiVisibility > 0.05f) && 
+                    (io.MousePos.y >= dockMin.y - 12.0f * g_dpiScale && 
                      io.MousePos.y <= dockMax.y + 12.0f * g_dpiScale &&
                      io.MousePos.x >= dockMin.x - 12.0f * g_dpiScale && 
                      io.MousePos.x <= dockMax.x + 12.0f * g_dpiScale);
-    bool overHeader = (io.MousePos.y <= headerHeight);
+    bool overHeader = (s_uiVisibility > 0.05f) && (io.MousePos.y <= headerHeight);
 
     // Gather active session participants (for Voice Only mode)
     struct ParticipantBubble {
@@ -1646,9 +1733,9 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     float sPillW = sBtnW * 2.0f + sGap + sPadX * 2.0f;
     float sPillH = sBtnH + sPadY * 2.0f;
     float sPillX = windowWidth - 14.0f * g_dpiScale - sPillW;
-    float sPillY = headerHeight + 10.0f * g_dpiScale;
+    float sPillY = headerHeight + 10.0f * g_dpiScale + topOffset;
     float volBtnSize = 28.0f * g_dpiScale;
-    bool overSplitArea = (streamCount > 1 &&
+    bool overSplitArea = (s_uiVisibility > 0.05f) && (streamCount > 1 &&
                           io.MousePos.x >= sPillX - 10.0f * g_dpiScale && io.MousePos.x <= windowWidth &&
                           io.MousePos.y >= sPillY - 6.0f * g_dpiScale && io.MousePos.y <= sPillY + sPillH + volBtnSize + 18.0f * g_dpiScale);
 
@@ -1771,7 +1858,7 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
                 }
             }
 
-            float focusHeaderY = headerHeight + 12.0f * g_dpiScale;
+            float focusHeaderY = headerHeight + 12.0f * g_dpiScale + topOffset;
             float btnH28 = 28.0f * g_dpiScale;
             float leftBadgeX = 24.0f * g_dpiScale;
 
@@ -1974,7 +2061,7 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
                     // 3. Header bar overlay on stream tile
                     float titleH = 26.0f * g_dpiScale;
                     float titlePadX = 10.0f * g_dpiScale;
-                    float headerY = (sr.min.y < 5.0f) ? (headerHeight + 10.0f * g_dpiScale) : (sr.min.y + 10.0f * g_dpiScale);
+                    float headerY = (sr.min.y < 5.0f) ? (headerHeight + 10.0f * g_dpiScale + topOffset) : (sr.min.y + 10.0f * g_dpiScale);
                     ImVec2 tMin(sr.min.x + 12.0f * g_dpiScale, headerY);
                     std::string titleStr = CleanStreamTitle(stream.name);
                     ImVec2 tTextSize = ImGui::CalcTextSize(titleStr.c_str());
@@ -2133,7 +2220,7 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
                     // Close slot button (ONLY shown if manual split was activated)
                     if (g_state.gridLayoutMode != 0) {
                         float btnActionSize = 26.0f * g_dpiScale;
-                        float headerY = sr.min.y + 10.0f * g_dpiScale;
+                        float headerY = (sr.min.y < 5.0f) ? (headerHeight + 10.0f * g_dpiScale + topOffset) : (sr.min.y + 10.0f * g_dpiScale);
                         float curRightBtnX = sr.max.x - btnActionSize - 12.0f * g_dpiScale;
                         ImVec2 clsMin(curRightBtnX, headerY);
                         ImVec2 clsMax(curRightBtnX + btnActionSize, headerY + btnActionSize);
@@ -2218,9 +2305,9 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
         // =========================================================================
         int N = (int)participants.size();
         if (N > 0) {
-            // Central canvas area for avatars: Maximize size between TopBar (headerHeight) and bottom dock (dockMin.y)
+            // Central canvas area for avatars: Maximize size between TopBar (headerHeight) and bottom dock (nominal position)
             float topLimit = headerHeight + 10.0f * g_dpiScale;
-            float bottomLimit = dockMin.y - 10.0f * g_dpiScale;
+            float bottomLimit = nominalDockY - 10.0f * g_dpiScale;
             float availableH = fmaxf(100.0f * g_dpiScale, bottomLimit - topLimit);
 
             float badgeH = 28.0f * g_dpiScale;
@@ -2383,7 +2470,7 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     // Placed strictly in top-right of video canvas, above volume control
     // Rendered on fgDrawList with 100% click priority over video canvas
     // =========================================================================
-    if (streamCount > 1) {
+    if (streamCount > 1 && s_uiVisibility > 0.001f) {
         ImVec2 spMin(sPillX, sPillY);
         ImVec2 spMax(sPillX + sPillW, sPillY + sPillH);
         fgDrawList->AddRectFilled(spMin, spMax, COLOR_CAPSULE_BG, 8.0f * g_dpiScale);
@@ -2471,9 +2558,9 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     // Requirement 2: Global Master Volume Control Button (Top-Right of Screen)
     // Conserve UNIQUEMENT le contrôle du volume situé en haut à droite de l'écran global
     // =========================================================================
-    if (streamCount > 0) {
+    if (streamCount > 0 && s_uiVisibility > 0.001f) {
         float volBtnX = windowWidth - 14.0f * g_dpiScale - volBtnSize;
-        float volBtnY = (streamCount > 1) ? (sPillY + sPillH + 8.0f * g_dpiScale) : (headerHeight + 10.0f * g_dpiScale);
+        float volBtnY = (streamCount > 1) ? (sPillY + sPillH + 8.0f * g_dpiScale) : (headerHeight + 10.0f * g_dpiScale + topOffset);
         ImVec2 volMin(volBtnX, volBtnY);
         ImVec2 volMax(volBtnX + volBtnSize, volBtnY + volBtnSize);
 
@@ -2510,113 +2597,115 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     // =========================================================================
     // 3. Floating Collaborative Bottom Dock (Center) in Overlay (Requirement 2)
     // =========================================================================
-    // Restored fully opaque rounded dark capsule with unified #1E1F22 color and crisp border
-    drawList->AddRectFilled(dockMin, dockMax, COLOR_CAPSULE_BG, 16.0f * g_dpiScale);
-    drawList->AddRect(dockMin, dockMax, COLOR_CAPSULE_BORDER, 16.0f * g_dpiScale, 0, 1.2f * g_dpiScale);
+    if (s_uiVisibility > 0.001f) {
+        // Restored fully opaque rounded dark capsule with unified #1E1F22 color and crisp border
+        drawList->AddRectFilled(dockMin, dockMax, COLOR_CAPSULE_BG, 16.0f * g_dpiScale);
+        drawList->AddRect(dockMin, dockMax, COLOR_CAPSULE_BORDER, 16.0f * g_dpiScale, 0, 1.2f * g_dpiScale);
 
-    ImGui::SetCursorScreenPos(ImVec2(dockMin.x + dockPadX, dockMin.y + (dockHeight - btnH) * 0.5f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 7.0f * g_dpiScale);
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
+        ImGui::SetCursorScreenPos(ImVec2(dockMin.x + dockPadX, dockMin.y + (dockHeight - btnH) * 0.5f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 7.0f * g_dpiScale);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
 
-    // Base dock button colors with subtle contrast inside the #1E1F22 capsule
-    ImVec4 dockBtnBg    = ImVec4(42.0f/255.0f, 44.0f/255.0f, 50.0f/255.0f, 1.0f); // #2A2C32
-    ImVec4 dockBtnHover = ImVec4(56.0f/255.0f, 60.0f/255.0f, 72.0f/255.0f, 1.0f); // #383C48
+        // Base dock button colors with subtle contrast inside the #1E1F22 capsule
+        ImVec4 dockBtnBg    = ImVec4(42.0f/255.0f, 44.0f/255.0f, 50.0f/255.0f, 1.0f); // #2A2C32
+        ImVec4 dockBtnHover = ImVec4(56.0f/255.0f, 60.0f/255.0f, 72.0f/255.0f, 1.0f); // #383C48
 
-    // Control 1: [+] Screen / Window with Plus inside (MaterialSymbolsAddPhotoAlternate.svg per sketch #1)
-    ImVec2 bPos1 = ImGui::GetCursorScreenPos();
-    ImGui::PushStyleColor(ImGuiCol_Button, dockBtnBg);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, dockBtnHover);
-    if (ImGui::Button("##dock_screen_plus", ImVec2(btnW, btnH))) {}
-    bool hovered1 = ImGui::IsItemHovered();
-    ImGui::PopStyleColor(2);
-    ImU32 col1 = hovered1 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255);
-    IconManager::Get().DrawSvgIcon(drawList, "MaterialSymbolsAddPhotoAlternate.svg", ImVec2(bPos1.x + btnW * 0.5f, bPos1.y + btnH * 0.5f), 24.0f * g_dpiScale, col1);
-    if (hovered1) ImGui::SetTooltip("Add stream source or webcam window");
+        // Control 1: [+] Screen / Window with Plus inside (MaterialSymbolsAddPhotoAlternate.svg per sketch #1)
+        ImVec2 bPos1 = ImGui::GetCursorScreenPos();
+        ImGui::PushStyleColor(ImGuiCol_Button, dockBtnBg);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, dockBtnHover);
+        if (ImGui::Button("##dock_screen_plus", ImVec2(btnW, btnH))) {}
+        bool hovered1 = ImGui::IsItemHovered();
+        ImGui::PopStyleColor(2);
+        ImU32 col1 = hovered1 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255);
+        IconManager::Get().DrawSvgIcon(drawList, "MaterialSymbolsAddPhotoAlternate.svg", ImVec2(bPos1.x + btnW * 0.5f, bPos1.y + btnH * 0.5f), 24.0f * g_dpiScale, col1);
+        if (hovered1) ImGui::SetTooltip("Add stream source or webcam window");
 
-    // Control 2: Slanted Paintbrush / Annotation (BoxiconsBrushFilled.svg per sketch #2)
-    ImGui::SameLine(0, btnSpacing);
-    ImVec2 bPos2 = ImGui::GetCursorScreenPos();
-    ImGui::PushStyleColor(ImGuiCol_Button, g_state.isDrawMode ? ImVec4(0.361f, 0.141f, 0.180f, 1.0f) : dockBtnBg);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, g_state.isDrawMode ? ImVec4(0.431f, 0.157f, 0.212f, 1.0f) : dockBtnHover);
-    if (ImGui::Button("##dock_paintbrush", ImVec2(btnW, btnH))) {
-        g_state.isDrawMode = !g_state.isDrawMode;
-    }
-    bool hovered2 = ImGui::IsItemHovered();
-    ImGui::PopStyleColor(2);
-    ImU32 col2 = g_state.isDrawMode ? IM_COL32(255, 120, 140, 255) : (hovered2 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
-    IconManager::Get().DrawSvgIcon(drawList, "BoxiconsBrushFilled.svg", ImVec2(bPos2.x + btnW * 0.5f, bPos2.y + btnH * 0.5f), 24.0f * g_dpiScale, col2);
-    if (hovered2) ImGui::SetTooltip("Toggle Collaborative Real-time Screen Annotation (Paintbrush)");
-
-    // Control 3: Arrow cursor in rounded square "show cursor on the other screen" (TablerPointer2.svg per sketch #3)
-    ImGui::SameLine(0, btnSpacing);
-    ImVec2 bPos3 = ImGui::GetCursorScreenPos();
-    ImGui::PushStyleColor(ImGuiCol_Button, g_state.showCursorOnOtherScreen ? ImVec4(0.18f, 0.28f, 0.40f, 1.0f) : dockBtnBg);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, g_state.showCursorOnOtherScreen ? ImVec4(0.24f, 0.35f, 0.48f, 1.0f) : dockBtnHover);
-    if (ImGui::Button("##dock_cursor_screen", ImVec2(btnW, btnH))) {
-        g_state.showCursorOnOtherScreen = !g_state.showCursorOnOtherScreen;
-    }
-    bool hovered3 = ImGui::IsItemHovered();
-    ImGui::PopStyleColor(2);
-    ImU32 col3 = g_state.showCursorOnOtherScreen ? IM_COL32(100, 180, 255, 255) : (hovered3 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
-    IconManager::Get().DrawSvgIcon(drawList, "TablerPointer2.svg", ImVec2(bPos3.x + btnW * 0.5f, bPos3.y + btnH * 0.5f), 24.0f * g_dpiScale, col3);
-    if (hovered3) ImGui::SetTooltip(g_state.showCursorOnOtherScreen ? "Hide cursor on the other screen" : "Show cursor on the other screen");
-
-    // Control 4: Classic Microphone (MdiMicrophone.svg / MdiMicrophoneOff.svg per sketch #4)
-    ImGui::SameLine(0, btnSpacing);
-    ImVec2 bPos4 = ImGui::GetCursorScreenPos();
-    ImGui::PushStyleColor(ImGuiCol_Button, g_state.isMicMuted ? ImVec4(0.40f, 0.15f, 0.18f, 1.0f) : dockBtnBg);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, g_state.isMicMuted ? ImVec4(0.50f, 0.18f, 0.22f, 1.0f) : dockBtnHover);
-    if (ImGui::Button("##dock_mic", ImVec2(btnW, btnH))) {
-        g_state.isMicMuted = !g_state.isMicMuted;
-    }
-    bool hovered4 = ImGui::IsItemHovered();
-    ImGui::PopStyleColor(2);
-    const char* micSvg = g_state.isMicMuted ? "MdiMicrophoneOff.svg" : "MdiMicrophone.svg";
-    ImU32 col4 = g_state.isMicMuted ? IM_COL32(255, 80, 80, 255) : (hovered4 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
-    IconManager::Get().DrawSvgIcon(drawList, micSvg, ImVec2(bPos4.x + btnW * 0.5f, bPos4.y + btnH * 0.5f), 24.0f * g_dpiScale, col4);
-    if (hovered4) ImGui::SetTooltip(g_state.isMicMuted ? "Unmute Microphone" : "Mute Microphone");
-
-    // Control 5: Audio Headphones (IcBaselineHeadset.svg / IcBaselineHeadsetOff.svg per sketch #5)
-    ImGui::SameLine(0, btnSpacing);
-    ImVec2 bPos5 = ImGui::GetCursorScreenPos();
-    ImGui::PushStyleColor(ImGuiCol_Button, g_state.isAudioDeafened ? ImVec4(0.40f, 0.15f, 0.18f, 1.0f) : dockBtnBg);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, g_state.isAudioDeafened ? ImVec4(0.50f, 0.18f, 0.22f, 1.0f) : dockBtnHover);
-    if (ImGui::Button("##dock_audio", ImVec2(btnW, btnH))) {
-        g_state.isAudioDeafened = !g_state.isAudioDeafened;
-    }
-    bool hovered5 = ImGui::IsItemHovered();
-    ImGui::PopStyleColor(2);
-    const char* audioSvg = g_state.isAudioDeafened ? "IcBaselineHeadsetOff.svg" : "IcBaselineHeadset.svg";
-    ImU32 col5 = g_state.isAudioDeafened ? IM_COL32(255, 80, 80, 255) : (hovered5 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
-    IconManager::Get().DrawSvgIcon(drawList, audioSvg, ImVec2(bPos5.x + btnW * 0.5f, bPos5.y + btnH * 0.5f), 24.0f * g_dpiScale, col5);
-    if (hovered5) ImGui::SetTooltip(g_state.isAudioDeafened ? "Undeafen Audio" : "Deafen Audio");
-
-    // Control 6: Phone Receiver with 'x' (MaterialSymbolsPhoneCancelSharp.svg per sketch #6)
-    ImGui::SameLine(0, btnSpacing);
-    ImVec2 bPos6 = ImGui::GetCursorScreenPos();
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.48f, 0.16f, 0.20f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.15f, 0.18f, 1.0f));
-    if (ImGui::Button("##dock_phone_hangup", ImVec2(btnEndW, btnH))) {
-        g_state.activeConnectedIp.clear();
-        g_state.isStreaming = false;
-        for (auto& peer : g_state.peers) {
-            if (peer.status == PeerStatus::Online || peer.status == PeerStatus::Waiting) {
-                peer.status = PeerStatus::Offline;
-            }
+        // Control 2: Slanted Paintbrush / Annotation (BoxiconsBrushFilled.svg per sketch #2)
+        ImGui::SameLine(0, btnSpacing);
+        ImVec2 bPos2 = ImGui::GetCursorScreenPos();
+        ImGui::PushStyleColor(ImGuiCol_Button, g_state.isDrawMode ? ImVec4(0.361f, 0.141f, 0.180f, 1.0f) : dockBtnBg);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, g_state.isDrawMode ? ImVec4(0.431f, 0.157f, 0.212f, 1.0f) : dockBtnHover);
+        if (ImGui::Button("##dock_paintbrush", ImVec2(btnW, btnH))) {
+            g_state.isDrawMode = !g_state.isDrawMode;
         }
-        SavePeers(g_state);
-        g_state.currentTab = AppTab::Home;
-    }
-    bool hovered6 = ImGui::IsItemHovered();
-    ImGui::PopStyleColor(2);
-    ImU32 col6 = hovered6 ? IM_COL32(255, 255, 255, 255) : IM_COL32(250, 240, 245, 255);
-    IconManager::Get().DrawSvgIcon(drawList, "MaterialSymbolsPhoneCancelSharp.svg", ImVec2(bPos6.x + btnEndW * 0.5f, bPos6.y + btnH * 0.5f), 24.0f * g_dpiScale, col6);
-    if (hovered6) ImGui::SetTooltip("Disconnect / Leave Session");
+        bool hovered2 = ImGui::IsItemHovered();
+        ImGui::PopStyleColor(2);
+        ImU32 col2 = g_state.isDrawMode ? IM_COL32(255, 120, 140, 255) : (hovered2 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
+        IconManager::Get().DrawSvgIcon(drawList, "BoxiconsBrushFilled.svg", ImVec2(bPos2.x + btnW * 0.5f, bPos2.y + btnH * 0.5f), 24.0f * g_dpiScale, col2);
+        if (hovered2) ImGui::SetTooltip("Toggle Collaborative Real-time Screen Annotation (Paintbrush)");
 
-    ImGui::PopStyleColor(); // ImGuiCol_Border
-    ImGui::PopStyleVar(3);
+        // Control 3: Arrow cursor in rounded square "show cursor on the other screen" (TablerPointer2.svg per sketch #3)
+        ImGui::SameLine(0, btnSpacing);
+        ImVec2 bPos3 = ImGui::GetCursorScreenPos();
+        ImGui::PushStyleColor(ImGuiCol_Button, g_state.showCursorOnOtherScreen ? ImVec4(0.18f, 0.28f, 0.40f, 1.0f) : dockBtnBg);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, g_state.showCursorOnOtherScreen ? ImVec4(0.24f, 0.35f, 0.48f, 1.0f) : dockBtnHover);
+        if (ImGui::Button("##dock_cursor_screen", ImVec2(btnW, btnH))) {
+            g_state.showCursorOnOtherScreen = !g_state.showCursorOnOtherScreen;
+        }
+        bool hovered3 = ImGui::IsItemHovered();
+        ImGui::PopStyleColor(2);
+        ImU32 col3 = g_state.showCursorOnOtherScreen ? IM_COL32(100, 180, 255, 255) : (hovered3 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
+        IconManager::Get().DrawSvgIcon(drawList, "TablerPointer2.svg", ImVec2(bPos3.x + btnW * 0.5f, bPos3.y + btnH * 0.5f), 24.0f * g_dpiScale, col3);
+        if (hovered3) ImGui::SetTooltip(g_state.showCursorOnOtherScreen ? "Hide cursor on the other screen" : "Show cursor on the other screen");
+
+        // Control 4: Classic Microphone (MdiMicrophone.svg / MdiMicrophoneOff.svg per sketch #4)
+        ImGui::SameLine(0, btnSpacing);
+        ImVec2 bPos4 = ImGui::GetCursorScreenPos();
+        ImGui::PushStyleColor(ImGuiCol_Button, g_state.isMicMuted ? ImVec4(0.40f, 0.15f, 0.18f, 1.0f) : dockBtnBg);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, g_state.isMicMuted ? ImVec4(0.50f, 0.18f, 0.22f, 1.0f) : dockBtnHover);
+        if (ImGui::Button("##dock_mic", ImVec2(btnW, btnH))) {
+            g_state.isMicMuted = !g_state.isMicMuted;
+        }
+        bool hovered4 = ImGui::IsItemHovered();
+        ImGui::PopStyleColor(2);
+        const char* micSvg = g_state.isMicMuted ? "MdiMicrophoneOff.svg" : "MdiMicrophone.svg";
+        ImU32 col4 = g_state.isMicMuted ? IM_COL32(255, 80, 80, 255) : (hovered4 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
+        IconManager::Get().DrawSvgIcon(drawList, micSvg, ImVec2(bPos4.x + btnW * 0.5f, bPos4.y + btnH * 0.5f), 24.0f * g_dpiScale, col4);
+        if (hovered4) ImGui::SetTooltip(g_state.isMicMuted ? "Unmute Microphone" : "Mute Microphone");
+
+        // Control 5: Audio Headphones (IcBaselineHeadset.svg / IcBaselineHeadsetOff.svg per sketch #5)
+        ImGui::SameLine(0, btnSpacing);
+        ImVec2 bPos5 = ImGui::GetCursorScreenPos();
+        ImGui::PushStyleColor(ImGuiCol_Button, g_state.isAudioDeafened ? ImVec4(0.40f, 0.15f, 0.18f, 1.0f) : dockBtnBg);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, g_state.isAudioDeafened ? ImVec4(0.50f, 0.18f, 0.22f, 1.0f) : dockBtnHover);
+        if (ImGui::Button("##dock_audio", ImVec2(btnW, btnH))) {
+            g_state.isAudioDeafened = !g_state.isAudioDeafened;
+        }
+        bool hovered5 = ImGui::IsItemHovered();
+        ImGui::PopStyleColor(2);
+        const char* audioSvg = g_state.isAudioDeafened ? "IcBaselineHeadsetOff.svg" : "IcBaselineHeadset.svg";
+        ImU32 col5 = g_state.isAudioDeafened ? IM_COL32(255, 80, 80, 255) : (hovered5 ? IM_COL32(255, 255, 255, 255) : IM_COL32(230, 230, 240, 255));
+        IconManager::Get().DrawSvgIcon(drawList, audioSvg, ImVec2(bPos5.x + btnW * 0.5f, bPos5.y + btnH * 0.5f), 24.0f * g_dpiScale, col5);
+        if (hovered5) ImGui::SetTooltip(g_state.isAudioDeafened ? "Undeafen Audio" : "Deafen Audio");
+
+        // Control 6: Phone Receiver with 'x' (MaterialSymbolsPhoneCancelSharp.svg per sketch #6)
+        ImGui::SameLine(0, btnSpacing);
+        ImVec2 bPos6 = ImGui::GetCursorScreenPos();
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.48f, 0.16f, 0.20f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.15f, 0.18f, 1.0f));
+        if (ImGui::Button("##dock_phone_hangup", ImVec2(btnEndW, btnH))) {
+            g_state.activeConnectedIp.clear();
+            g_state.isStreaming = false;
+            for (auto& peer : g_state.peers) {
+                if (peer.status == PeerStatus::Online || peer.status == PeerStatus::Waiting) {
+                    peer.status = PeerStatus::Offline;
+                }
+            }
+            SavePeers(g_state);
+            g_state.currentTab = AppTab::Home;
+        }
+        bool hovered6 = ImGui::IsItemHovered();
+        ImGui::PopStyleColor(2);
+        ImU32 col6 = hovered6 ? IM_COL32(255, 255, 255, 255) : IM_COL32(250, 240, 245, 255);
+        IconManager::Get().DrawSvgIcon(drawList, "MaterialSymbolsPhoneCancelSharp.svg", ImVec2(bPos6.x + btnEndW * 0.5f, bPos6.y + btnH * 0.5f), 24.0f * g_dpiScale, col6);
+        if (hovered6) ImGui::SetTooltip("Disconnect / Leave Session");
+
+        ImGui::PopStyleColor(); // ImGuiCol_Border
+        ImGui::PopStyleVar(3);
+    }
 
     ImGui::PopStyleVar(2); // WindowPadding & WindowBorderSize
 }
@@ -3003,7 +3092,39 @@ void RenderDebugWindow() {
         ImGui::EndChild();
     }
 
-    // 4. Viewport Resolution & Scaling Quick Test
+    // 4. UI Auto-Hide & Inactivity Animation Controls
+    if (ImGui::CollapsingHeader("⏱ UI Auto-Hide & Inactivity Animation", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Checkbox("Enable UI Auto-Hide", &g_state.enableAutoHide);
+
+        ImGui::SliderFloat("Inside Timeout (s)", &g_state.autoHideDelayInside, 1.0f, 30.0f, "%.1f s");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Inactivity delay before auto-hiding UI when mouse is inside window (default: 10.0s)");
+
+        ImGui::SliderFloat("Outside Timeout (s)", &g_state.autoHideDelayOutside, 0.2f, 5.0f, "%.1f s");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Inactivity delay before auto-hiding UI when mouse leaves window (default: 1.0s)");
+
+        ImGui::Spacing();
+        ImGui::Text("Current State:");
+        ImGui::BulletText("Mouse In Window: %s", s_isMouseInside ? "YES (Inside)" : "NO (Outside)");
+        ImGui::BulletText("Inactivity: %.2f s / %.1f s", s_inactivityTimer, s_isMouseInside ? g_state.autoHideDelayInside : g_state.autoHideDelayOutside);
+        ImGui::BulletText("UI Visibility: %.0f%% (%s)", s_uiVisibility * 100.0f, (s_uiVisibility >= 0.99f) ? "Visible" : ((s_uiVisibility <= 0.01f) ? "Hidden" : "Animating"));
+
+        float progressMax = s_isMouseInside ? g_state.autoHideDelayInside : g_state.autoHideDelayOutside;
+        float frac = (progressMax > 0.0f) ? ImClamp(s_inactivityTimer / progressMax, 0.0f, 1.0f) : 0.0f;
+        ImGui::ProgressBar(frac, ImVec2(-1, 18.0f * g_dpiScale), "Inactivity Progress");
+
+        ImGui::Spacing();
+        if (ImGui::Button("Trigger Hide Now", ImVec2(160.0f * g_dpiScale, 28.0f * g_dpiScale))) {
+            s_inactivityTimer = 999.0f;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Wake Up UI (Reset)", ImVec2(160.0f * g_dpiScale, 28.0f * g_dpiScale))) {
+            s_inactivityTimer = 0.0f;
+            s_uiVisibility = 1.0f;
+        }
+        ImGui::Spacing();
+    }
+
+    // 5. Viewport Resolution & Scaling Quick Test
     if (ImGui::CollapsingHeader("🔍 UI Scaling Quick Test")) {
         ImGui::Text("Simulate different DPI / UI Scales:");
         if (ImGui::Button("1.00x", ImVec2(60.0f * g_dpiScale, 26.0f * g_dpiScale))) g_state.uiScale = 1.0f;
@@ -3052,6 +3173,9 @@ void RenderGui(HWND hWnd, Dx11Context& dx) {
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
+
+    // Process UI Auto-Hide & Inactivity Animation state
+    UpdateAutoHideState(hWnd);
 
 #if defined(_DEBUG) || !defined(NDEBUG)
     // F12 Hotkey to toggle Debug window

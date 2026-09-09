@@ -79,6 +79,11 @@ struct GuiState {
     int settingsCategory = 0; // 0: account, 1: theme, 2: hotkey, 3: audio, 4: setting, 5: stat
     float uiScale = 1.0f;
     int selectedTheme = 0; // 0: Dark Charcoal, 1: Dracula, 2: Midnight
+
+    // UI Auto-Hide & Inactivity System
+    bool enableAutoHide = true;
+    float autoHideDelayInside = 10.0f;  // Inactivity timeout when mouse is inside window (default 10s)
+    float autoHideDelayOutside = 1.0f;  // Inactivity timeout when mouse leaves window (default 1.0s)
 };
 
 extern float g_dpiScale;
