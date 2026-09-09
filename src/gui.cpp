@@ -573,16 +573,17 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     // Load default profile picture for avatar fallback
     ID3D11ShaderResourceView* defaultAvatarTex = IconManager::Get().GetImageTexture("ext/img/default profile picture.png");
 
-    float topAvatarRadius = 24.0f * g_dpiScale;
-    float topAvatarSpacing = 10.0f * g_dpiScale;
-    float topAvatarY = (headerHeight - (topAvatarRadius * 2.0f)) * 0.5f;
+    float topAvatarRadius = 19.0f * g_dpiScale;
+    float topAvatarSpacing = 9.0f * g_dpiScale;
+    float avatarDiam = topAvatarRadius * 2.0f;
+    float topAvatarY = (headerHeight - avatarDiam) * 0.5f;
 
-    // Center tab buttons calculations (Structured rounded rectangle style)
-    float navBtnHeight = 34.0f * g_dpiScale;
-    float paddingX = 20.0f * g_dpiScale;
-    float spacing = 10.0f * g_dpiScale;
+    // Center tab buttons calculations (Structured rounded rectangle style harmonized with dock)
+    float navBtnHeight = 38.0f * g_dpiScale;
+    float paddingX = 22.0f * g_dpiScale;
+    float spacing = 8.0f * g_dpiScale;
 
-    ImGui::SetWindowFontScale(1.05f);
+    ImGui::SetWindowFontScale(1.06f);
     float wHome = ImGui::CalcTextSize("home").x + paddingX * 2.0f;
     float wConn = ImGui::CalcTextSize("current connection").x + paddingX * 2.0f;
     float wSet  = ImGui::CalcTextSize("setting").x + paddingX * 2.0f;
@@ -592,15 +593,14 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     float homeX = xConn - spacing - wHome;
     float xSet  = xConn + wConn + spacing;
 
-    float avatarDiam = topAvatarRadius * 2.0f;
-    float meMarginToHome = 42.0f * g_dpiScale;
+    float meMarginToHome = 36.0f * g_dpiScale;
     float meX = homeX - meMarginToHome - avatarDiam;
 
     // Calculate Right-side System Controls Pill geometry first
-    float btnSize = 34.0f * g_dpiScale;
+    float btnSize = 38.0f * g_dpiScale;
     float btnGap = 4.0f * g_dpiScale;
     float capPadX = 6.0f * g_dpiScale;
-    float capPadY = 4.0f * g_dpiScale;
+    float capPadY = 5.0f * g_dpiScale;
     float capH = btnSize + capPadY * 2.0f;
     float rightMargin = 14.0f * g_dpiScale;
 
@@ -608,8 +608,8 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
 
     bool isDebugVisible = false;
 #if defined(_DEBUG) || !defined(NDEBUG)
-    float dbgBtnW = 74.0f * g_dpiScale;
-    float dbgBtnH = 28.0f * g_dpiScale;
+    float dbgBtnW = 78.0f * g_dpiScale;
+    float dbgBtnH = 34.0f * g_dpiScale;
     float dbgGap = 6.0f * g_dpiScale;
     isDebugVisible = g_debug.showDebugButton;
 #endif
@@ -626,13 +626,13 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     float sysY = (headerHeight - btnSize) * 0.5f;
 
     // =========================================================================
-    // Item 1 & 2: TopBar Avatars Placement based on Tab & Stream State
+    // Item 1: TopBar Avatars Placement (Strictly Top-Left, Top-Right stays clear)
     // - On 'home' / 'setting' or when stream is active on 'current connection':
     //   Full Top-Left avatar row (Waiting [yellow ring] -> Silent -> Speaking -> Me)
-    //   Top-Right is empty.
     // - On 'current connection' when NO stream is active (voice-only view):
-    //   Top-Left connected members are hidden (since they are in the center).
-    //   Top-Right displays ONLY waiting members (PeerStatus::Waiting).
+    //   Connected members are in the central voice bubbles.
+    //   Waiting members (Waiting [yellow ring]) are placed in Top-Left.
+    // - Top-Right corner next to Debug is ALWAYS empty/clear.
     // =========================================================================
     bool isVoiceOnlyView = (g_state.currentTab == AppTab::CurrentConnection && GetActiveStreamCount() == 0);
 
@@ -653,81 +653,21 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
         }
     }
 
+    float leftLimit = 20.0f * g_dpiScale;
+    float availW = (meX - topAvatarSpacing) - leftLimit;
+    int maxFit = (availW > 0.0f) ? (int)((availW + topAvatarSpacing) / (avatarDiam + topAvatarSpacing)) : 0;
+
+    std::vector<Peer*> peersToDisplay;
+
     if (isVoiceOnlyView) {
-        // Voice-only mode on 'current connection': render ONLY waiting members in top-right near Debug
+        // In voice-only view, only waiting peers are in the top-left row (connected peers are in central view)
         int waitCount = (int)waitingPeers.size();
-        for (int k = 0; k < waitCount; ++k) {
-            Peer* peer = waitingPeers[k];
-            float waitX = capX - 12.0f * g_dpiScale - (waitCount - k) * (avatarDiam + topAvatarSpacing);
-            if (waitX < (xSet + wSet + 24.0f * g_dpiScale)) continue; // Keep clear of center tabs
-
-            ImGui::SetCursorPos(ImVec2(waitX, topAvatarY));
-            ImVec2 screenMin = ImGui::GetCursorScreenPos();
-            ImVec2 center(screenMin.x + topAvatarRadius, screenMin.y + topAvatarRadius);
-
-            std::string btnId = "##top_wait_peer_" + std::to_string(k) + "_" + peer->name;
-            ImGui::InvisibleButton(btnId.c_str(), ImVec2(avatarDiam, avatarDiam));
-            bool isHovered = ImGui::IsItemHovered();
-
-            DrawCircularAvatar(drawList, defaultAvatarTex, center, topAvatarRadius, peer->name);
-
-            // Pulsating yellow circle for waiting status
-            float pulse = 1.0f + 0.08f * sinf((float)ImGui::GetTime() * 4.0f);
-            drawList->AddCircle(center, topAvatarRadius * pulse, IM_COL32(255, 204, 0, 230), 32, 2.2f * g_dpiScale);
-
-            DrawAvatarAudioBadge(drawList, center, topAvatarRadius, peer->isMuted, peer->isDeafened);
-
-            if (isHovered) {
-                ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.12f, 0.13f, 0.16f, 0.98f));
-                ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.27f, 0.33f, 1.00f));
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * g_dpiScale, 8.0f * g_dpiScale));
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f * g_dpiScale);
-                ImGui::BeginTooltip();
-                ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.98f, 1.0f), "%s", peer->name.c_str());
-                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.1f, 1.0f), "Status: Waiting for connection...");
-                if (peer->isDeafened) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Audio: Deafened (Casque coupé)");
-                } else if (peer->isMuted) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Audio: Muted (Micro coupé)");
-                }
-                ImGui::TextDisabled("Right-click for options");
-                ImGui::EndTooltip();
-                ImGui::PopStyleVar(2);
-                ImGui::PopStyleColor(2);
-            }
-
-            if (ImGui::BeginPopupContextItem(btnId.c_str(), ImGuiPopupFlags_MouseButtonRight)) {
-                ImGui::Text("%s Options", peer->name.c_str());
-                ImGui::Separator();
-                ImGui::Text("Volume: %.0f%%", peer->volume * 100.0f);
-                if (ImGui::SliderFloat("##top_wait_peer_vol", &peer->volume, 0.0f, 1.5f, "%.0f%%")) {
-                    SavePeers(g_state);
-                }
-                ImGui::MenuItem("Mute Audio", nullptr, &peer->isMuted);
-                ImGui::MenuItem("Deafen Audio", nullptr, &peer->isDeafened);
-                if (ImGui::MenuItem("Poke Peer (Ping)")) {
-                    peer->pokeTimer = 2.0f;
-                }
-                ImGui::Separator();
-                if (ImGui::MenuItem("Cancel / Disconnect")) {
-                    peer->status = PeerStatus::Offline;
-                    if (g_state.activeConnectedIp == peer->ip) {
-                        g_state.activeConnectedIp.clear();
-                    }
-                    SavePeers(g_state);
-                }
-                ImGui::EndPopup();
-            }
+        for (int k = 0; k < waitCount && (int)peersToDisplay.size() < maxFit; ++k) {
+            peersToDisplay.push_back(waitingPeers[k]);
         }
     } else {
-        // Active stream or Home / Setting tab: Full Top-Left avatar row (Waiting -> Silent -> Speaking -> Me)
-        float leftLimit = 20.0f * g_dpiScale;
-        float availW = (meX - topAvatarSpacing) - leftLimit;
-        int maxFit = (availW > 0.0f) ? (int)((availW + topAvatarSpacing) / (avatarDiam + topAvatarSpacing)) : 0;
-
-        std::vector<Peer*> peersToDisplay;
+        // Stream active or Home / Setting tab: Full Top-Left avatar row (Waiting -> Silent -> Speaking -> Me)
         int totalPeers = (int)(waitingPeers.size() + silentPeers.size() + speakingPeers.size());
-
         if (totalPeers <= maxFit) {
             peersToDisplay.insert(peersToDisplay.end(), waitingPeers.begin(), waitingPeers.end());
             peersToDisplay.insert(peersToDisplay.end(), silentPeers.begin(), silentPeers.end());
@@ -752,146 +692,147 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
             peersToDisplay.insert(peersToDisplay.end(), pickedSilent.begin(), pickedSilent.end());
             peersToDisplay.insert(peersToDisplay.end(), pickedSpeaking.begin(), pickedSpeaking.end());
         }
+    }
 
-        // Render remote peers (ending right before meX)
-        int peerCount = (int)peersToDisplay.size();
-        for (int k = 0; k < peerCount; ++k) {
-            Peer* peer = peersToDisplay[k];
-            float peerX = meX - (peerCount - k) * (avatarDiam + topAvatarSpacing);
-            ImGui::SetCursorPos(ImVec2(peerX, topAvatarY));
-            ImVec2 screenMin = ImGui::GetCursorScreenPos();
-            ImVec2 center(screenMin.x + topAvatarRadius, screenMin.y + topAvatarRadius);
+    // Render remote peers (ending right before meX if 'me' is displayed, or aligned to meX in voice-only)
+    int peerCount = (int)peersToDisplay.size();
+    float anchorRight = isVoiceOnlyView ? (meX + avatarDiam) : meX;
+    for (int k = 0; k < peerCount; ++k) {
+        Peer* peer = peersToDisplay[k];
+        float peerX = anchorRight - (peerCount - k) * (avatarDiam + topAvatarSpacing);
+        ImGui::SetCursorPos(ImVec2(peerX, topAvatarY));
+        ImVec2 screenMin = ImGui::GetCursorScreenPos();
+        ImVec2 center(screenMin.x + topAvatarRadius, screenMin.y + topAvatarRadius);
 
-            std::string btnId = "##top_peer_" + std::to_string(k) + "_" + peer->name;
-            ImGui::InvisibleButton(btnId.c_str(), ImVec2(avatarDiam, avatarDiam));
-            bool isHovered = ImGui::IsItemHovered();
+        std::string btnId = "##top_peer_" + std::to_string(k) + "_" + peer->name;
+        ImGui::InvisibleButton(btnId.c_str(), ImVec2(avatarDiam, avatarDiam));
+        bool isHovered = ImGui::IsItemHovered();
 
-            DrawCircularAvatar(drawList, defaultAvatarTex, center, topAvatarRadius, peer->name);
+        DrawCircularAvatar(drawList, defaultAvatarTex, center, topAvatarRadius, peer->name);
 
-            // Status rings
-            if (peer->status == PeerStatus::Waiting) {
-                float pulse = 1.0f + 0.08f * sinf((float)ImGui::GetTime() * 4.0f);
-                drawList->AddCircle(center, topAvatarRadius * pulse, IM_COL32(255, 204, 0, 230), 32, 2.2f * g_dpiScale);
-            } else if (peer->status == PeerStatus::Online && peer->isSpeaking) {
-                drawList->AddCircle(center, topAvatarRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.5f * g_dpiScale);
-                float glow = 2.0f + 1.5f * sinf((float)ImGui::GetTime() * 6.0f);
-                drawList->AddCircle(center, topAvatarRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.8f * g_dpiScale);
-            }
-
-            // Visual Mute / Deafen badge on peer avatar
-            DrawAvatarAudioBadge(drawList, center, topAvatarRadius, peer->isMuted, peer->isDeafened);
-
-            if (isHovered) {
-                ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.12f, 0.13f, 0.16f, 0.98f));
-                ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.27f, 0.33f, 1.00f));
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * g_dpiScale, 8.0f * g_dpiScale));
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f * g_dpiScale);
-                ImGui::BeginTooltip();
-                ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.98f, 1.0f), "%s", peer->name.c_str());
-                if (peer->status == PeerStatus::Waiting) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.1f, 1.0f), "Status: Waiting for connection...");
-                } else {
-                    ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), "Status: Connected (Online)");
-                    ImGui::TextDisabled(peer->isSpeaking ? "Speaking" : "Idle");
-                }
-                if (peer->isDeafened) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Audio: Deafened (Casque coupé)");
-                } else if (peer->isMuted) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Audio: Muted (Micro coupé)");
-                }
-                if (peer->isStreamHidden) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "Stream: Masqué");
-                }
-                ImGui::TextDisabled("Right-click for options");
-                ImGui::EndTooltip();
-                ImGui::PopStyleVar(2);
-                ImGui::PopStyleColor(2);
-            }
-
-            if (ImGui::BeginPopupContextItem(btnId.c_str(), ImGuiPopupFlags_MouseButtonRight)) {
-                ImGui::Text("%s Options", peer->name.c_str());
-                ImGui::Separator();
-                if (peer->isStreamHidden) {
-                    if (ImGui::MenuItem("Afficher le stream (Show stream)")) {
-                        peer->isStreamHidden = false;
-                    }
-                } else {
-                    if (ImGui::MenuItem("Masquer le stream (Hide stream)")) {
-                        peer->isStreamHidden = true;
-                    }
-                }
-                ImGui::Separator();
-                ImGui::Text("Volume: %.0f%%", peer->volume * 100.0f);
-                if (ImGui::SliderFloat("##top_peer_vol", &peer->volume, 0.0f, 1.5f, "%.0f%%")) {
-                    SavePeers(g_state);
-                }
-                ImGui::MenuItem("Mute Audio", nullptr, &peer->isMuted);
-                ImGui::MenuItem("Deafen Audio", nullptr, &peer->isDeafened);
-                if (ImGui::MenuItem("Poke Peer (Ping)")) {
-                    peer->pokeTimer = 2.0f;
-                }
-                if (peer->status == PeerStatus::Waiting) {
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Cancel / Disconnect")) {
-                        peer->status = PeerStatus::Offline;
-                        if (g_state.activeConnectedIp == peer->ip) {
-                            g_state.activeConnectedIp.clear();
-                        }
-                        SavePeers(g_state);
-                    }
-                }
-                ImGui::EndPopup();
-            }
+        // Status rings
+        if (peer->status == PeerStatus::Waiting) {
+            float pulse = 1.0f + 0.08f * sinf((float)ImGui::GetTime() * 4.0f);
+            drawList->AddCircle(center, topAvatarRadius * pulse, IM_COL32(255, 204, 0, 230), 32, 2.2f * g_dpiScale);
+        } else if (peer->status == PeerStatus::Online && peer->isSpeaking) {
+            drawList->AddCircle(center, topAvatarRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.5f * g_dpiScale);
+            float glow = 2.0f + 1.5f * sinf((float)ImGui::GetTime() * 6.0f);
+            drawList->AddCircle(center, topAvatarRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.8f * g_dpiScale);
         }
 
-        // Render "me" avatar (strictly anchored at meX)
-        {
-            ImGui::SetCursorPos(ImVec2(meX, topAvatarY));
-            ImVec2 screenMin = ImGui::GetCursorScreenPos();
-            ImVec2 center(screenMin.x + topAvatarRadius, screenMin.y + topAvatarRadius);
+        // Visual Mute / Deafen badge on peer avatar
+        DrawAvatarAudioBadge(drawList, center, topAvatarRadius, peer->isMuted, peer->isDeafened);
 
-            ImGui::InvisibleButton("##top_me_avatar", ImVec2(avatarDiam, avatarDiam));
-            bool meHovered = ImGui::IsItemHovered();
-
-            DrawCircularAvatar(drawList, defaultAvatarTex, center, topAvatarRadius, "Me");
-
-            // Speech glowing green ring ONLY when speaking
-            if (g_state.isMicSpeaking) {
-                drawList->AddCircle(center, topAvatarRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.5f * g_dpiScale);
-                float glow = 2.0f + 1.5f * sinf((float)ImGui::GetTime() * 6.0f);
-                drawList->AddCircle(center, topAvatarRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.8f * g_dpiScale);
+        if (isHovered) {
+            ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.12f, 0.13f, 0.16f, 0.98f));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.27f, 0.33f, 1.00f));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * g_dpiScale, 8.0f * g_dpiScale));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f * g_dpiScale);
+            ImGui::BeginTooltip();
+            ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.98f, 1.0f), "%s", peer->name.c_str());
+            if (peer->status == PeerStatus::Waiting) {
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.1f, 1.0f), "Status: Waiting for connection...");
+            } else {
+                ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), "Status: Connected (Online)");
+                ImGui::TextDisabled(peer->isSpeaking ? "Speaking" : "Idle");
             }
+            if (peer->isDeafened) {
+                ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Audio: Deafened (Casque coupé)");
+            } else if (peer->isMuted) {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Audio: Muted (Micro coupé)");
+            }
+            if (peer->isStreamHidden) {
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "Stream: Masqué");
+            }
+            ImGui::TextDisabled("Right-click for options");
+            ImGui::EndTooltip();
+            ImGui::PopStyleVar(2);
+            ImGui::PopStyleColor(2);
+        }
 
-            // Visual Mute / Deafen badge on 'me' avatar
-            DrawAvatarAudioBadge(drawList, center, topAvatarRadius, g_state.isMicMuted, g_state.isAudioDeafened);
-
-            if (meHovered) {
-                ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.12f, 0.13f, 0.16f, 0.98f));
-                ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.27f, 0.33f, 1.00f));
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * g_dpiScale, 8.0f * g_dpiScale));
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f * g_dpiScale);
-                ImGui::BeginTooltip();
-                ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.98f, 1.0f), "Host: Me (Local User)");
-                ImGui::TextDisabled(g_state.isMicSpeaking ? "Status: Speaking" : "Status: Connected (Silent)");
-                if (g_state.isAudioDeafened) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Audio: Deafened (Casque coupé)");
-                } else if (g_state.isMicMuted) {
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Microphone: Muted (Micro coupé)");
+        if (ImGui::BeginPopupContextItem(btnId.c_str(), ImGuiPopupFlags_MouseButtonRight)) {
+            ImGui::Text("%s Options", peer->name.c_str());
+            ImGui::Separator();
+            if (peer->isStreamHidden) {
+                if (ImGui::MenuItem("Afficher le stream (Show stream)")) {
+                    peer->isStreamHidden = false;
                 }
-                ImGui::TextDisabled("Right-click for audio / mic options");
-                ImGui::EndTooltip();
-                ImGui::PopStyleVar(2);
-                ImGui::PopStyleColor(2);
+            } else {
+                if (ImGui::MenuItem("Masquer le stream (Hide stream)")) {
+                    peer->isStreamHidden = true;
+                }
             }
-
-            if (ImGui::BeginPopupContextItem("##top_me_avatar", ImGuiPopupFlags_MouseButtonRight)) {
-                ImGui::Text("Host Audio Options");
+            ImGui::Separator();
+            ImGui::Text("Volume: %.0f%%", peer->volume * 100.0f);
+            if (ImGui::SliderFloat("##top_peer_vol", &peer->volume, 0.0f, 1.5f, "%.0f%%")) {
+                SavePeers(g_state);
+            }
+            ImGui::MenuItem("Mute Audio", nullptr, &peer->isMuted);
+            ImGui::MenuItem("Deafen Audio", nullptr, &peer->isDeafened);
+            if (ImGui::MenuItem("Poke Peer (Ping)")) {
+                peer->pokeTimer = 2.0f;
+            }
+            if (peer->status == PeerStatus::Waiting) {
                 ImGui::Separator();
-                ImGui::MenuItem("Mute Microphone", nullptr, &g_state.isMicMuted);
-                ImGui::MenuItem("Deafen Audio", nullptr, &g_state.isAudioDeafened);
-                ImGui::MenuItem("RNNoise Noise Suppression", nullptr, &g_state.rnnoiseNoiseSuppression);
-                ImGui::EndPopup();
+                if (ImGui::MenuItem("Cancel / Disconnect")) {
+                    peer->status = PeerStatus::Offline;
+                    if (g_state.activeConnectedIp == peer->ip) {
+                        g_state.activeConnectedIp.clear();
+                    }
+                    SavePeers(g_state);
+                }
             }
+            ImGui::EndPopup();
+        }
+    }
+
+    // Render "me" avatar (strictly anchored at meX, only when not in voice-only view)
+    if (!isVoiceOnlyView) {
+        ImGui::SetCursorPos(ImVec2(meX, topAvatarY));
+        ImVec2 screenMin = ImGui::GetCursorScreenPos();
+        ImVec2 center(screenMin.x + topAvatarRadius, screenMin.y + topAvatarRadius);
+
+        ImGui::InvisibleButton("##top_me_avatar", ImVec2(avatarDiam, avatarDiam));
+        bool meHovered = ImGui::IsItemHovered();
+
+        DrawCircularAvatar(drawList, defaultAvatarTex, center, topAvatarRadius, "Me");
+
+        // Speech glowing green ring ONLY when speaking
+        if (g_state.isMicSpeaking) {
+            drawList->AddCircle(center, topAvatarRadius + 2.0f * g_dpiScale, IM_COL32(72, 224, 110, 255), 32, 2.5f * g_dpiScale);
+            float glow = 2.0f + 1.5f * sinf((float)ImGui::GetTime() * 6.0f);
+            drawList->AddCircle(center, topAvatarRadius + (2.0f + glow) * g_dpiScale, IM_COL32(72, 224, 110, 120), 32, 1.8f * g_dpiScale);
+        }
+
+        // Visual Mute / Deafen badge on 'me' avatar
+        DrawAvatarAudioBadge(drawList, center, topAvatarRadius, g_state.isMicMuted, g_state.isAudioDeafened);
+
+        if (meHovered) {
+            ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.12f, 0.13f, 0.16f, 0.98f));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.27f, 0.33f, 1.00f));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * g_dpiScale, 8.0f * g_dpiScale));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f * g_dpiScale);
+            ImGui::BeginTooltip();
+            ImGui::TextColored(ImVec4(0.95f, 0.95f, 0.98f, 1.0f), "Host: Me (Local User)");
+            ImGui::TextDisabled(g_state.isMicSpeaking ? "Status: Speaking" : "Status: Connected (Silent)");
+            if (g_state.isAudioDeafened) {
+                ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Audio: Deafened (Casque coupé)");
+            } else if (g_state.isMicMuted) {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Microphone: Muted (Micro coupé)");
+            }
+            ImGui::TextDisabled("Right-click for audio / mic options");
+            ImGui::EndTooltip();
+            ImGui::PopStyleVar(2);
+            ImGui::PopStyleColor(2);
+        }
+
+        if (ImGui::BeginPopupContextItem("##top_me_avatar", ImGuiPopupFlags_MouseButtonRight)) {
+            ImGui::Text("Host Audio Options");
+            ImGui::Separator();
+            ImGui::MenuItem("Mute Microphone", nullptr, &g_state.isMicMuted);
+            ImGui::MenuItem("Deafen Audio", nullptr, &g_state.isAudioDeafened);
+            ImGui::MenuItem("RNNoise Noise Suppression", nullptr, &g_state.rnnoiseNoiseSuppression);
+            ImGui::EndPopup();
         }
     }
 
@@ -903,13 +844,13 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     float navY = (headerHeight - navBtnHeight) * 0.5f;
 
     float tabCapPadX = 6.0f * g_dpiScale;
-    float tabCapPadY = 4.0f * g_dpiScale;
+    float tabCapPadY = 5.0f * g_dpiScale;
     ImVec2 tabCapMin(winPos.x + homeX - tabCapPadX, winPos.y + navY - tabCapPadY);
     ImVec2 tabCapMax(winPos.x + xSet + wSet + tabCapPadX, winPos.y + navY + navBtnHeight + tabCapPadY);
-    float tabCapRounding = 12.0f * g_dpiScale;
+    float tabCapRounding = 14.0f * g_dpiScale;
 
     drawList->AddRectFilled(tabCapMin, tabCapMax, COLOR_CAPSULE_BG, tabCapRounding);
-    drawList->AddRect(tabCapMin, tabCapMax, COLOR_CAPSULE_BORDER, tabCapRounding, 0, 1.0f * g_dpiScale);
+    drawList->AddRect(tabCapMin, tabCapMax, COLOR_CAPSULE_BORDER, tabCapRounding, 0, 1.2f * g_dpiScale);
 
     auto DrawSolidTabButton = [&](const char* label, float x, float w, AppTab tab, const char* btnId) {
         ImGui::SetCursorPos(ImVec2(x, navY));
@@ -958,8 +899,8 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImVec2 rectMax(rectMin.x + capW, rectMin.y + capH);
 
     // Dark pill background (#1E1F22 opaque) harmonized strictly with top tabs capsule
-    drawList->AddRectFilled(rectMin, rectMax, COLOR_CAPSULE_BG, 12.0f * g_dpiScale);
-    drawList->AddRect(rectMin, rectMax, COLOR_CAPSULE_BORDER, 12.0f * g_dpiScale, 0, 1.0f);
+    drawList->AddRectFilled(rectMin, rectMax, COLOR_CAPSULE_BG, 14.0f * g_dpiScale);
+    drawList->AddRect(rectMin, rectMax, COLOR_CAPSULE_BORDER, 14.0f * g_dpiScale, 0, 1.2f * g_dpiScale);
 
     float curRightX = capX + capPadX;
 
@@ -981,8 +922,8 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
         ImGui::PopStyleColor(3);
 
         ImU32 dbgBg = g_debug.showDebugWindow ? IM_COL32(122, 51, 64, 255) : (dbgHovered ? IM_COL32(48, 52, 68, 255) : COLOR_CAPSULE_BG);
-        drawList->AddRectFilled(dbgScreenMin, dbgScreenMax, dbgBg, 7.0f * g_dpiScale);
-        drawList->AddRect(dbgScreenMin, dbgScreenMax, COLOR_CAPSULE_BORDER, 7.0f * g_dpiScale, 0, 1.0f);
+        drawList->AddRectFilled(dbgScreenMin, dbgScreenMax, dbgBg, 8.0f * g_dpiScale);
+        drawList->AddRect(dbgScreenMin, dbgScreenMax, COLOR_CAPSULE_BORDER, 8.0f * g_dpiScale, 0, 1.0f);
         ImVec2 dbgTextSize = ImGui::CalcTextSize("Debug");
         drawList->AddText(ImVec2(dbgScreenMin.x + (dbgBtnW - dbgTextSize.x) * 0.5f, dbgScreenMin.y + (dbgBtnH - dbgTextSize.y) * 0.5f), IM_COL32(240, 242, 250, 255), "Debug");
 
@@ -1005,10 +946,10 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PopStyleColor(3);
 
     if (minHovered) {
-        drawList->AddRectFilled(minBtnPos, ImVec2(minBtnPos.x + btnSize, minBtnPos.y + btnSize), IM_COL32(51, 56, 71, 255), 7.0f * g_dpiScale);
+        drawList->AddRectFilled(minBtnPos, ImVec2(minBtnPos.x + btnSize, minBtnPos.y + btnSize), IM_COL32(51, 56, 71, 255), 8.0f * g_dpiScale);
     }
-    drawList->AddLine(ImVec2(minBtnPos.x + 9.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
-                      ImVec2(minBtnPos.x + btnSize - 9.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
+    drawList->AddLine(ImVec2(minBtnPos.x + 10.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
+                      ImVec2(minBtnPos.x + btnSize - 10.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
                       IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
     curRightX += btnSize + btnGap;
 
@@ -1029,9 +970,9 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PopStyleColor(3);
 
     if (maxHovered) {
-        drawList->AddRectFilled(maxBtnPos, ImVec2(maxBtnPos.x + btnSize, maxBtnPos.y + btnSize), IM_COL32(51, 56, 71, 255), 7.0f * g_dpiScale);
+        drawList->AddRectFilled(maxBtnPos, ImVec2(maxBtnPos.x + btnSize, maxBtnPos.y + btnSize), IM_COL32(51, 56, 71, 255), 8.0f * g_dpiScale);
     }
-    float boxPad = 9.0f * g_dpiScale;
+    float boxPad = 10.0f * g_dpiScale;
     drawList->AddRect(ImVec2(maxBtnPos.x + boxPad, maxBtnPos.y + boxPad),
                       ImVec2(maxBtnPos.x + btnSize - boxPad, maxBtnPos.y + btnSize - boxPad),
                       IM_COL32(220, 220, 230, 255), 1.0f, 0, 1.5f * g_dpiScale);
@@ -1050,9 +991,9 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PopStyleColor(3);
 
     if (closeHovered) {
-        drawList->AddRectFilled(closeBtnPos, ImVec2(closeBtnPos.x + btnSize, closeBtnPos.y + btnSize), IM_COL32(217, 38, 46, 255), 7.0f * g_dpiScale);
+        drawList->AddRectFilled(closeBtnPos, ImVec2(closeBtnPos.x + btnSize, closeBtnPos.y + btnSize), IM_COL32(217, 38, 46, 255), 8.0f * g_dpiScale);
     }
-    float crossPad = 10.0f * g_dpiScale;
+    float crossPad = 11.0f * g_dpiScale;
     drawList->AddLine(ImVec2(closeBtnPos.x + crossPad, closeBtnPos.y + crossPad),
                       ImVec2(closeBtnPos.x + btnSize - crossPad, closeBtnPos.y + btnSize - crossPad),
                       IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
