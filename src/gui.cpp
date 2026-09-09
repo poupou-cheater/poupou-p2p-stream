@@ -1601,10 +1601,6 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     ImVec2 streamMax = ImVec2(windowWidth, windowHeight);
     drawList->AddRectFilled(streamMin, streamMax, IM_COL32(11, 12, 16, 255));
 
-    // Dynamic Slide Animation offsets
-    float topOffset = (1.0f - SmoothEase(s_uiVisibility)) * (-headerHeight - 40.0f * g_dpiScale);
-    float bottomOffset = (1.0f - SmoothEase(s_uiVisibility)) * (dockHeight + 60.0f * g_dpiScale);
-
     // Dockbar dimensions for overlay & boundary calculations
     float btnW = 46.0f * g_dpiScale;
     float btnH = 40.0f * g_dpiScale;
@@ -1614,6 +1610,11 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     float dockPadX = 14.0f * g_dpiScale;
     float dockWidth = dockInnerW + dockPadX * 2.0f;
     float dockHeight = 56.0f * g_dpiScale;
+
+    // Dynamic Slide Animation offsets
+    float topOffset = (1.0f - SmoothEase(s_uiVisibility)) * (-headerHeight - 40.0f * g_dpiScale);
+    float bottomOffset = (1.0f - SmoothEase(s_uiVisibility)) * (dockHeight + 60.0f * g_dpiScale);
+
     float nominalDockY = windowHeight - dockHeight - 24.0f * g_dpiScale;
     ImVec2 dockMin = ImVec2((windowWidth - dockWidth) * 0.5f, nominalDockY + bottomOffset);
     ImVec2 dockMax = ImVec2(dockMin.x + dockWidth, dockMin.y + dockHeight);
