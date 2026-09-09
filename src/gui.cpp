@@ -516,7 +516,7 @@ static void RenderAvatar(const char* id, const char* label, bool isSpeaking, flo
 static void DrawAvatarAudioBadge(ImDrawList* drawList, ImVec2 center, float radius, bool isMuted, bool isDeafened) {
     if (!isMuted && !isDeafened) return;
 
-    float badgeRadius = 9.0f * g_dpiScale;
+    float badgeRadius = 10.0f * g_dpiScale;
     // Bottom-right quadrant of circular avatar
     ImVec2 bCenter(center.x + radius * 0.707f, center.y + radius * 0.707f);
 
@@ -525,9 +525,9 @@ static void DrawAvatarAudioBadge(ImDrawList* drawList, ImVec2 center, float radi
     drawList->AddCircle(bCenter, badgeRadius, IM_COL32(24, 25, 30, 255), 16, 1.5f * g_dpiScale);
 
     if (isDeafened) {
-        IconManager::Get().DrawSvgIcon(drawList, "IcBaselineHeadsetOff.svg", bCenter, 11.0f * g_dpiScale, IM_COL32(255, 255, 255, 255));
+        IconManager::Get().DrawSvgIcon(drawList, "IcBaselineHeadsetOff.svg", bCenter, 12.0f * g_dpiScale, IM_COL32(255, 255, 255, 255));
     } else if (isMuted) {
-        IconManager::Get().DrawSvgIcon(drawList, "MdiMicrophoneOff.svg", bCenter, 11.0f * g_dpiScale, IM_COL32(255, 255, 255, 255));
+        IconManager::Get().DrawSvgIcon(drawList, "MdiMicrophoneOff.svg", bCenter, 12.0f * g_dpiScale, IM_COL32(255, 255, 255, 255));
     }
 }
 
@@ -549,7 +549,7 @@ static int GetActiveStreamCount() {
 
 // Titlebar & Window Header matching the sketch
 static void RenderHeader(HWND hWnd, float windowWidth) {
-    float headerHeight = 74.0f * g_dpiScale;
+    float headerHeight = 84.0f * g_dpiScale;
 
     // Requirement 3 & 4: Isolate TopBar in its own dedicated ImGui window at highest z-order
     // to guarantee 100% click priority over any video or stream tiles beneath
@@ -573,17 +573,17 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     // Load default profile picture for avatar fallback
     ID3D11ShaderResourceView* defaultAvatarTex = IconManager::Get().GetImageTexture("ext/img/default profile picture.png");
 
-    float topAvatarRadius = 19.0f * g_dpiScale;
-    float topAvatarSpacing = 9.0f * g_dpiScale;
+    float topAvatarRadius = 23.0f * g_dpiScale;
+    float topAvatarSpacing = 10.0f * g_dpiScale;
     float avatarDiam = topAvatarRadius * 2.0f;
     float topAvatarY = (headerHeight - avatarDiam) * 0.5f;
 
     // Center tab buttons calculations (Structured rounded rectangle style harmonized with dock)
-    float navBtnHeight = 38.0f * g_dpiScale;
-    float paddingX = 22.0f * g_dpiScale;
+    float navBtnHeight = 44.0f * g_dpiScale;
+    float paddingX = 24.0f * g_dpiScale;
     float spacing = 8.0f * g_dpiScale;
 
-    ImGui::SetWindowFontScale(1.06f);
+    ImGui::SetWindowFontScale(1.15f);
     float wHome = ImGui::CalcTextSize("home").x + paddingX * 2.0f;
     float wConn = ImGui::CalcTextSize("current connection").x + paddingX * 2.0f;
     float wSet  = ImGui::CalcTextSize("setting").x + paddingX * 2.0f;
@@ -593,14 +593,14 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     float homeX = xConn - spacing - wHome;
     float xSet  = xConn + wConn + spacing;
 
-    float meMarginToHome = 36.0f * g_dpiScale;
+    float meMarginToHome = 40.0f * g_dpiScale;
     float meX = homeX - meMarginToHome - avatarDiam;
 
     // Calculate Right-side System Controls Pill geometry first
-    float btnSize = 38.0f * g_dpiScale;
+    float btnSize = 44.0f * g_dpiScale;
     float btnGap = 4.0f * g_dpiScale;
-    float capPadX = 6.0f * g_dpiScale;
-    float capPadY = 5.0f * g_dpiScale;
+    float capPadX = 7.0f * g_dpiScale;
+    float capPadY = 6.0f * g_dpiScale;
     float capH = btnSize + capPadY * 2.0f;
     float rightMargin = 14.0f * g_dpiScale;
 
@@ -608,8 +608,8 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
 
     bool isDebugVisible = false;
 #if defined(_DEBUG) || !defined(NDEBUG)
-    float dbgBtnW = 78.0f * g_dpiScale;
-    float dbgBtnH = 34.0f * g_dpiScale;
+    float dbgBtnW = 86.0f * g_dpiScale;
+    float dbgBtnH = 38.0f * g_dpiScale;
     float dbgGap = 6.0f * g_dpiScale;
     isDebugVisible = g_debug.showDebugButton;
 #endif
@@ -843,11 +843,11 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     // =========================================================================
     float navY = (headerHeight - navBtnHeight) * 0.5f;
 
-    float tabCapPadX = 6.0f * g_dpiScale;
-    float tabCapPadY = 5.0f * g_dpiScale;
+    float tabCapPadX = 7.0f * g_dpiScale;
+    float tabCapPadY = 6.0f * g_dpiScale;
     ImVec2 tabCapMin(winPos.x + homeX - tabCapPadX, winPos.y + navY - tabCapPadY);
     ImVec2 tabCapMax(winPos.x + xSet + wSet + tabCapPadX, winPos.y + navY + navBtnHeight + tabCapPadY);
-    float tabCapRounding = 14.0f * g_dpiScale;
+    float tabCapRounding = 16.0f * g_dpiScale;
 
     drawList->AddRectFilled(tabCapMin, tabCapMax, COLOR_CAPSULE_BG, tabCapRounding);
     drawList->AddRect(tabCapMin, tabCapMax, COLOR_CAPSULE_BORDER, tabCapRounding, 0, 1.2f * g_dpiScale);
@@ -864,12 +864,12 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
 
         if (isSelected) {
             ImU32 selCol = isHover ? IM_COL32(110, 40, 54, 255) : IM_COL32(92, 36, 46, 255);
-            drawList->AddRectFilled(bMin, bMax, selCol, 8.0f * g_dpiScale);
-            drawList->AddRect(bMin, bMax, IM_COL32(138, 54, 69, 255), 8.0f * g_dpiScale, 0, 1.0f * g_dpiScale);
+            drawList->AddRectFilled(bMin, bMax, selCol, 10.0f * g_dpiScale);
+            drawList->AddRect(bMin, bMax, IM_COL32(138, 54, 69, 255), 10.0f * g_dpiScale, 0, 1.0f * g_dpiScale);
         } else if (isHover) {
             ImU32 hovCol = isDown ? IM_COL32(24, 25, 28, 255) : IM_COL32(48, 50, 58, 255);
-            drawList->AddRectFilled(bMin, bMax, hovCol, 8.0f * g_dpiScale);
-            drawList->AddRect(bMin, bMax, IM_COL32(75, 80, 95, 200), 8.0f * g_dpiScale, 0, 1.0f * g_dpiScale);
+            drawList->AddRectFilled(bMin, bMax, hovCol, 10.0f * g_dpiScale);
+            drawList->AddRect(bMin, bMax, IM_COL32(75, 80, 95, 200), 10.0f * g_dpiScale, 0, 1.0f * g_dpiScale);
         }
 
         ImGui::SetCursorScreenPos(bMin);
@@ -899,8 +899,8 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImVec2 rectMax(rectMin.x + capW, rectMin.y + capH);
 
     // Dark pill background (#1E1F22 opaque) harmonized strictly with top tabs capsule
-    drawList->AddRectFilled(rectMin, rectMax, COLOR_CAPSULE_BG, 14.0f * g_dpiScale);
-    drawList->AddRect(rectMin, rectMax, COLOR_CAPSULE_BORDER, 14.0f * g_dpiScale, 0, 1.2f * g_dpiScale);
+    drawList->AddRectFilled(rectMin, rectMax, COLOR_CAPSULE_BG, 16.0f * g_dpiScale);
+    drawList->AddRect(rectMin, rectMax, COLOR_CAPSULE_BORDER, 16.0f * g_dpiScale, 0, 1.2f * g_dpiScale);
 
     float curRightX = capX + capPadX;
 
@@ -922,8 +922,8 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
         ImGui::PopStyleColor(3);
 
         ImU32 dbgBg = g_debug.showDebugWindow ? IM_COL32(122, 51, 64, 255) : (dbgHovered ? IM_COL32(48, 52, 68, 255) : COLOR_CAPSULE_BG);
-        drawList->AddRectFilled(dbgScreenMin, dbgScreenMax, dbgBg, 8.0f * g_dpiScale);
-        drawList->AddRect(dbgScreenMin, dbgScreenMax, COLOR_CAPSULE_BORDER, 8.0f * g_dpiScale, 0, 1.0f);
+        drawList->AddRectFilled(dbgScreenMin, dbgScreenMax, dbgBg, 10.0f * g_dpiScale);
+        drawList->AddRect(dbgScreenMin, dbgScreenMax, COLOR_CAPSULE_BORDER, 10.0f * g_dpiScale, 0, 1.0f);
         ImVec2 dbgTextSize = ImGui::CalcTextSize("Debug");
         drawList->AddText(ImVec2(dbgScreenMin.x + (dbgBtnW - dbgTextSize.x) * 0.5f, dbgScreenMin.y + (dbgBtnH - dbgTextSize.y) * 0.5f), IM_COL32(240, 242, 250, 255), "Debug");
 
@@ -946,11 +946,11 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PopStyleColor(3);
 
     if (minHovered) {
-        drawList->AddRectFilled(minBtnPos, ImVec2(minBtnPos.x + btnSize, minBtnPos.y + btnSize), IM_COL32(51, 56, 71, 255), 8.0f * g_dpiScale);
+        drawList->AddRectFilled(minBtnPos, ImVec2(minBtnPos.x + btnSize, minBtnPos.y + btnSize), IM_COL32(51, 56, 71, 255), 9.0f * g_dpiScale);
     }
-    drawList->AddLine(ImVec2(minBtnPos.x + 10.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
-                      ImVec2(minBtnPos.x + btnSize - 10.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
-                      IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
+    drawList->AddLine(ImVec2(minBtnPos.x + 12.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
+                      ImVec2(minBtnPos.x + btnSize - 12.0f * g_dpiScale, minBtnPos.y + btnSize * 0.5f),
+                      IM_COL32(220, 220, 230, 255), 1.8f * g_dpiScale);
     curRightX += btnSize + btnGap;
 
     // Maximize / Restore (□)
@@ -970,12 +970,12 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PopStyleColor(3);
 
     if (maxHovered) {
-        drawList->AddRectFilled(maxBtnPos, ImVec2(maxBtnPos.x + btnSize, maxBtnPos.y + btnSize), IM_COL32(51, 56, 71, 255), 8.0f * g_dpiScale);
+        drawList->AddRectFilled(maxBtnPos, ImVec2(maxBtnPos.x + btnSize, maxBtnPos.y + btnSize), IM_COL32(51, 56, 71, 255), 9.0f * g_dpiScale);
     }
-    float boxPad = 10.0f * g_dpiScale;
+    float boxPad = 12.0f * g_dpiScale;
     drawList->AddRect(ImVec2(maxBtnPos.x + boxPad, maxBtnPos.y + boxPad),
                       ImVec2(maxBtnPos.x + btnSize - boxPad, maxBtnPos.y + btnSize - boxPad),
-                      IM_COL32(220, 220, 230, 255), 1.0f, 0, 1.5f * g_dpiScale);
+                      IM_COL32(220, 220, 230, 255), 1.0f, 0, 1.8f * g_dpiScale);
     curRightX += btnSize + btnGap;
 
     // Close (✕)
@@ -991,15 +991,15 @@ static void RenderHeader(HWND hWnd, float windowWidth) {
     ImGui::PopStyleColor(3);
 
     if (closeHovered) {
-        drawList->AddRectFilled(closeBtnPos, ImVec2(closeBtnPos.x + btnSize, closeBtnPos.y + btnSize), IM_COL32(217, 38, 46, 255), 8.0f * g_dpiScale);
+        drawList->AddRectFilled(closeBtnPos, ImVec2(closeBtnPos.x + btnSize, closeBtnPos.y + btnSize), IM_COL32(217, 38, 46, 255), 9.0f * g_dpiScale);
     }
-    float crossPad = 11.0f * g_dpiScale;
+    float crossPad = 13.0f * g_dpiScale;
     drawList->AddLine(ImVec2(closeBtnPos.x + crossPad, closeBtnPos.y + crossPad),
                       ImVec2(closeBtnPos.x + btnSize - crossPad, closeBtnPos.y + btnSize - crossPad),
-                      IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
+                      IM_COL32(220, 220, 230, 255), 1.8f * g_dpiScale);
     drawList->AddLine(ImVec2(closeBtnPos.x + btnSize - crossPad, closeBtnPos.y + crossPad),
                       ImVec2(closeBtnPos.x + crossPad, closeBtnPos.y + btnSize - crossPad),
-                      IM_COL32(220, 220, 230, 255), 1.6f * g_dpiScale);
+                      IM_COL32(220, 220, 230, 255), 1.8f * g_dpiScale);
 
     ImGui::SetCursorPos(ImVec2(16.0f * g_dpiScale, headerHeight + 10.0f * g_dpiScale));
     ImGui::Dummy(ImVec2(0.0f, 0.0f));
@@ -1304,7 +1304,7 @@ static void RenderHomeView(float contentWidth, float contentHeight) {
     float addBarStartX = (contentWidth - addBarWidth) * 0.5f;
 
     // Position of the top add bar
-    float startY = 74.0f * g_dpiScale + padTop;
+    float startY = 84.0f * g_dpiScale + padTop;
     ImGui::SetCursorPos(ImVec2(addBarStartX, startY));
 
     // Container box around the add bar
@@ -1370,7 +1370,7 @@ static void RenderHomeView(float contentWidth, float contentHeight) {
 
     // 2. Large Rounded Container for Saved Connections (Centered & Harmonious!)
     float containerY = startY + addBoxHeight + gapY;
-    float totalWindowHeight = contentHeight + 74.0f * g_dpiScale;
+    float totalWindowHeight = contentHeight + 84.0f * g_dpiScale;
     float containerHeight = totalWindowHeight - containerY - padBottom;
     if (containerHeight < 160.0f * g_dpiScale) containerHeight = 160.0f * g_dpiScale;
 
@@ -1505,7 +1505,7 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
     // Zone boundaries strictly adhering to Requirement 2:
     // Video canvas covers 100% of available window (0, 0) to (windowWidth, windowHeight)
     // without black borders or letterbox padding (ImGuiStyleVar_WindowPadding = 0, WindowBorderSize = 0)
-    float headerHeight = 74.0f * g_dpiScale;
+    float headerHeight = 84.0f * g_dpiScale;
     float bottomBarHeight = 80.0f * g_dpiScale;
     float centralYMin = 0.0f;
     float centralYMax = windowHeight;
@@ -3096,7 +3096,7 @@ void RenderGui(HWND hWnd, Dx11Context& dx) {
         RenderCurrentConnectionView(windowWidth, windowHeight);
     } else {
         float contentWidth = windowWidth;
-        float contentHeight = windowHeight - 74.0f * g_dpiScale;
+        float contentHeight = windowHeight - 84.0f * g_dpiScale;
         if (g_state.currentTab == AppTab::Home) {
             RenderHomeView(contentWidth, contentHeight);
         } else if (g_state.currentTab == AppTab::Setting) {
