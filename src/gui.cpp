@@ -2277,23 +2277,23 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
         // =========================================================================
         int N = (int)participants.size();
         if (N > 0) {
-            // Central canvas area for avatars
+            // Central canvas area for avatars: Maximize size between TopBar (headerHeight) and bottom dock (dockMin.y)
             float topLimit = headerHeight + 10.0f * g_dpiScale;
-            float bottomLimit = windowHeight - dockHeight - 20.0f * g_dpiScale;
+            float bottomLimit = dockMin.y - 10.0f * g_dpiScale;
             float availableH = fmaxf(100.0f * g_dpiScale, bottomLimit - topLimit);
 
             float badgeH = 28.0f * g_dpiScale;
-            float badgeGap = 12.0f * g_dpiScale;
-            float badgeTotalH = badgeH + badgeGap;
+            float badgeGap = 10.0f * g_dpiScale;
+            float hintH = (N == 1) ? 24.0f * g_dpiScale : 0.0f;
+            float badgeTotalH = badgeH + badgeGap + hintH;
 
-            float spacing = (N <= 2) ? 48.0f * g_dpiScale : ((N <= 4) ? 32.0f * g_dpiScale : 20.0f * g_dpiScale);
-            float availWidth = windowWidth - 40.0f * g_dpiScale;
+            float spacing = (N <= 1) ? 0.0f : ((N == 2) ? 48.0f : ((N <= 4) ? 36.0f : 24.0f)) * g_dpiScale;
+            float availWidth = windowWidth - 48.0f * g_dpiScale;
             float maxRadiusX = ((availWidth - (N - 1) * spacing) / (float)N) * 0.5f;
-            float maxRadiusY = (availableH - badgeTotalH) * 0.48f;
+            float maxRadiusY = (availableH - badgeTotalH - 12.0f * g_dpiScale) * 0.5f;
 
-            // Generous circular bubbles size taking almost all available central space
-            float maxCap = (N == 1 ? 160.0f : (N <= 2 ? 135.0f : (N <= 3 ? 115.0f : (N <= 4 ? 100.0f : 85.0f)))) * g_dpiScale;
-            float baseRadius = ImClamp(fminf(maxRadiusY, maxRadiusX), 48.0f * g_dpiScale, maxCap);
+            // Maximized bubble radius filling available central viewport
+            float baseRadius = fmaxf(44.0f * g_dpiScale, fminf(maxRadiusY, maxRadiusX));
 
             float totalItemH = 2.0f * baseRadius + badgeTotalH;
             float centerY = topLimit + (availableH - totalItemH) * 0.5f + baseRadius;
@@ -2369,8 +2369,8 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
                 std::string initials = p.isMe ? "Me" : p.name;
                 DrawCircularAvatar(drawList, defaultAvatarTex, center, baseRadius, initials);
 
-                // Subtle dark border on avatar
-                drawList->AddCircle(center, baseRadius, isHovered ? IM_COL32(100, 160, 255, 220) : IM_COL32(50, 55, 70, 200), 48, (isHovered ? 2.0f : 1.5f) * g_dpiScale);
+                // Subtle dark border on avatar (No blue highlight on hover)
+                drawList->AddCircle(center, baseRadius, IM_COL32(50, 55, 70, 200), 48, 1.5f * g_dpiScale);
 
                 // Voice Activity Detection: Glowing green ring ONLY when speaking
                 if (p.isSpeaking) {
@@ -2385,7 +2385,8 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
                 bool isMuted = p.isMe ? g_state.isMicMuted : (p.peerPtr ? p.peerPtr->isMuted : false);
                 bool isDeafened = p.isMe ? g_state.isAudioDeafened : (p.peerPtr ? p.peerPtr->isDeafened : false);
                 if (isMuted || isDeafened) {
-                    float badgeRadius = fminf(22.0f * g_dpiScale, baseRadius * 0.26f);
+                    float badgeRadius = fminf(28.0f * g_dpiScale, baseRadius * 0.22f);
+                    badgeRadius = fmaxf(14.0f * g_dpiScale, badgeRadius);
                     float badgeIconSize = badgeRadius * 1.15f;
                     ImVec2 mCenter(center.x + baseRadius * 0.707f, center.y + baseRadius * 0.707f);
                     drawList->AddCircleFilled(mCenter, badgeRadius, IM_COL32(235, 48, 58, 255), 24);
@@ -2394,48 +2395,38 @@ static void RenderCurrentConnectionView(float windowWidth, float windowHeight) {
                     IconManager::Get().DrawSvgIcon(drawList, bIcon, mCenter, badgeIconSize, IM_COL32(255, 255, 255, 255));
                 }
 
-                // Pill badge below avatar
-                std::string statusText;
-                if (p.peerPtr && p.peerPtr->pokeTimer > 0.0f) {
-                    statusText = "POKED!";
-                } else if (isDeafened) {
-                    statusText = "Casque coupé";
-                } else if (isMuted) {
-                    statusText = "Micro coupé";
-                } else if (p.isSpeaking) {
-                    statusText = "Parle...";
-                } else {
-                    statusText = p.isMe ? "Hôte local" : (p.status == PeerStatus::Online ? "En ligne" : "En attente");
-                }
-
-                std::string badgeLabel = p.name + " (" + statusText + ")";
+                // Pill badge below avatar (Pure pseudonym ONLY: e.g. "me", "WaitingPeer_3")
+                std::string badgeLabel = p.isMe ? "me" : p.name;
                 ImVec2 bTextSize = ImGui::CalcTextSize(badgeLabel.c_str());
                 float badgePadX = 14.0f * g_dpiScale;
-                float badgeW = bTextSize.x + badgePadX * 2.0f + 16.0f * g_dpiScale;
+                float dotRadius = 4.0f * g_dpiScale;
+                float dotGap = 6.0f * g_dpiScale;
+                float dotAreaW = dotRadius * 2.0f + dotGap;
+                float badgeW = bTextSize.x + badgePadX * 2.0f + dotAreaW;
                 ImVec2 bMin(center.x - badgeW * 0.5f, center.y + baseRadius + badgeGap);
                 ImVec2 bMax(bMin.x + badgeW, bMin.y + badgeH);
 
-                ImU32 pillBgCol = isHovered ? IM_COL32(28, 30, 40, 230) : IM_COL32(18, 19, 25, 220);
+                ImU32 pillBgCol = isHovered ? IM_COL32(24, 26, 34, 230) : IM_COL32(18, 19, 25, 220);
                 ImU32 pillBdrCol = (p.peerPtr && p.peerPtr->pokeTimer > 0.0f) ? IM_COL32(255, 204, 0, 220) :
-                                   (p.isSpeaking ? IM_COL32(72, 224, 110, 200) : (isHovered ? IM_COL32(90, 150, 255, 200) : IM_COL32(50, 52, 65, 180)));
+                                   (p.isSpeaking ? IM_COL32(72, 224, 110, 200) : IM_COL32(50, 52, 65, 180));
 
                 drawList->AddRectFilled(bMin, bMax, pillBgCol, 14.0f * g_dpiScale);
                 drawList->AddRect(bMin, bMax, pillBdrCol, 14.0f * g_dpiScale, 0, 1.0f);
 
                 // Status dot
-                ImVec2 dotC(bMin.x + 14.0f * g_dpiScale, bMin.y + badgeH * 0.5f);
-                IconManager::DrawStatusIndicator(drawList, dotC, 4.0f * g_dpiScale, p.status, true);
+                ImVec2 dotC(bMin.x + badgePadX + dotRadius, bMin.y + badgeH * 0.5f);
+                IconManager::DrawStatusIndicator(drawList, dotC, dotRadius, p.status, true);
 
-                // Text
+                // Pure pseudonym text
                 ImU32 textCol = p.isSpeaking ? IM_COL32(120, 255, 150, 255) : IM_COL32(230, 232, 240, 255);
-                drawList->AddText(ImVec2(bMin.x + 24.0f * g_dpiScale, bMin.y + (badgeH - bTextSize.y) * 0.5f),
+                drawList->AddText(ImVec2(dotC.x + dotRadius + dotGap, bMin.y + (badgeH - bTextSize.y) * 0.5f),
                                   textCol, badgeLabel.c_str());
             }
 
             if (N == 1) {
                 const char* hintMsg = "Salon vocal actif • En attente d'autres participants ou d'un partage d'écran";
                 ImVec2 hSize = ImGui::CalcTextSize(hintMsg);
-                drawList->AddText(ImVec2((windowWidth - hSize.x) * 0.5f, centerY + baseRadius + badgeTotalH + 18.0f * g_dpiScale),
+                drawList->AddText(ImVec2((windowWidth - hSize.x) * 0.5f, centerY + baseRadius + badgeH + badgeGap + 8.0f * g_dpiScale),
                                   IM_COL32(130, 135, 155, 200), hintMsg);
             }
         } else {
